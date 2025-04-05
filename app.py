@@ -485,7 +485,7 @@ def generate_optimized_prompt(prompt):
             input={
                 "prompt": user_image_prompt,
                 "temperature": 0.7,
-                "max_tokens": 1024
+                "max_tokens": 2048
             }
         )
         optimized = "".join(output)
