@@ -464,10 +464,10 @@ if st.session_state.step == 1:
                             st.write("Generating images...")
                             progress_bar = st.progress(0)
                             
-                            # Only generate 2 images now
-                            for j in range(2):
-                                progress_bar.progress((j) / 2)
-                                st.write(f"Generating image {j+1}/2...")
+                            # Generate 4 images instead of 2
+                            for j in range(4):
+                                progress_bar.progress((j) / 4)
+                                st.write(f"Generating image {j+1}/4...")
                                 
                                 image_output = replicate.run(
                                     "google/imagen-3",
