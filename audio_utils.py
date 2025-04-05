@@ -14,42 +14,42 @@ AUDIO_DIR = "audio_resources"
 # Define dictionary of free audio resources
 AMBIENT_SOUNDS = {
     "Fireplace": {
-        "Crackling Fire": "https://ia800901.us.archive.org/23/items/FireplaceCracklingSoundEffect/Fireplace%20Crackling%20Sound%20Effect.mp3",
-        "Fireplace with Wind": "https://ia601508.us.archive.org/24/items/soundscrate-fireplace-crackling-sound-effect/Soundscrate-fireplace-crackling-sound-effect.mp3", 
-        "Cozy Evening Fire": "https://ia600101.us.archive.org/7/items/fireplace-sound-hd/fireplace-sound-hd.mp3"
+        "Crackling Fire": "https://assets.mixkit.co/sfx/preview/mixkit-campfire-crackles-1330.mp3",
+        "Fireplace with Wind": "https://assets.mixkit.co/sfx/preview/mixkit-blizzard-cold-winds-1153.mp3", 
+        "Cozy Evening Fire": "https://assets.mixkit.co/sfx/preview/mixkit-small-fire-in-the-fireplace-loop-1333.mp3"
     },
     "Rain": {
-        "Gentle Rain": "https://ia801002.us.archive.org/27/items/MediumRain/Medium%20Rain.mp3",
-        "Thunderstorm": "https://ia800503.us.archive.org/8/items/ThunderstormRainSoundEffectsHighQuality/Thunderstorm%20Rain%20Sound%20Effects%20-%20High%20Quality.mp3",
-        "Rain on Window": "https://ia801002.us.archive.org/14/items/RainOnRoofWindows/Rain%20On%20Roof%20%26%20Windows.mp3"
+        "Gentle Rain": "https://assets.mixkit.co/sfx/preview/mixkit-light-rain-loop-2393.mp3",
+        "Thunderstorm": "https://assets.mixkit.co/sfx/preview/mixkit-heavy-rain-with-distant-thunder-ambience-1250.mp3",
+        "Rain on Window": "https://assets.mixkit.co/sfx/preview/mixkit-rain-on-glass-window-loop-1248.mp3"
     },
     "Forest": {
-        "Forest Ambience": "https://ia800701.us.archive.org/23/items/forestsoundeffects/Forest%20Sound%20Effects.mp3",
-        "Bird Chirping": "https://ia800505.us.archive.org/5/items/BirdSoundsForestInMorning/Bird%20Sounds%20-%20Forest%20in%20Morning.mp3",
-        "Woodland Stream": "https://ia800204.us.archive.org/10/items/ForestStreamAndWaterBirdSoundEffectsForRelaxationAndSleep/Forest,%20Stream%20and%20Water%20Bird%20Sound%20Effects%20For%20Relaxation%20and%20Sleep.mp3"
+        "Forest Ambience": "https://assets.mixkit.co/sfx/preview/mixkit-forest-birds-loop-1240.mp3",
+        "Bird Chirping": "https://assets.mixkit.co/sfx/preview/mixkit-morning-birds-chirping-in-the-forest-2432.mp3",
+        "Woodland Stream": "https://assets.mixkit.co/sfx/preview/mixkit-stream-running-over-rocks-loop-2430.mp3"
     },
     "Ocean": {
-        "Ocean Waves": "https://ia800501.us.archive.org/22/items/OceanWavesSoundEffect/Ocean%20Waves%20Sound%20Effect.mp3",
-        "Calm Sea": "https://ia800501.us.archive.org/5/items/SeaShoreWavesSoundEffect/Sea%20Shore%20Waves%20Sound%20Effect.mp3", 
-        "Beach Ambience": "https://ia800502.us.archive.org/6/items/RelaxingBeachSound/Relaxing%20Beach%20Sound.mp3"
+        "Ocean Waves": "https://assets.mixkit.co/sfx/preview/mixkit-sea-waves-loop-1196.mp3",
+        "Calm Sea": "https://assets.mixkit.co/sfx/preview/mixkit-calm-ocean-waves-ambience-1181.mp3", 
+        "Beach Ambience": "https://assets.mixkit.co/sfx/preview/mixkit-beach-shore-small-waves-loop-1185.mp3"
     }
 }
 
 CLASSICAL_MUSIC = {
     "Calm": {
-        "Gymnopédie No.1 (Erik Satie)": "https://ia800507.us.archive.org/14/items/18gymnopediens1/01_gymnopedies_1.mp3",
-        "Clair de Lune (Debussy)": "https://ia801009.us.archive.org/11/items/ClairDeLune_653/Debussy-ClairDeLune.mp3",
-        "Canon in D (Pachelbel)": "https://ia800201.us.archive.org/12/items/PachelbelCanonInD_595/PachelbelCanonInD.mp3"
+        "Gymnopédie No.1 (Erik Satie)": "https://www.orangefreesounds.com/wp-content/uploads/2021/04/Erik-Satie-Gymnop%C3%A9die-No.-1-piano-solo.mp3",
+        "Clair de Lune (Debussy)": "https://www.orangefreesounds.com/wp-content/uploads/2021/04/Claude-Debussy-Clair-de-lune-piano-solo.mp3",
+        "Canon in D (Pachelbel)": "https://www.orangefreesounds.com/wp-content/uploads/2019/05/Canon-in-D-classical-music.mp3"
     },
     "Melancholic": {
-        "Moonlight Sonata (Beethoven)": "https://ia800906.us.archive.org/14/items/BeethovenMoonlightSonata1stMovement/Beethoven-MoonlightSonata1stMovement.mp3",
-        "Prelude in E-Minor (Chopin)": "https://ia800307.us.archive.org/34/items/Chopin-PreludeInE-minorOp.28No.4/Chopin-PreludeInE-minorOp.28No.4.mp3",
-        "Adagio for Strings (Barber)": "https://ia600303.us.archive.org/21/items/SamuelBarberAdagioForStrings/SamuelBarberAdagioForStrings.mp3"
+        "Moonlight Sonata (Beethoven)": "https://www.orangefreesounds.com/wp-content/uploads/2018/07/Piano-sonata-no-14-in-C-moonlight-sonata-by-Beethoven-classical-piano-music.mp3",
+        "Prelude in E-Minor (Chopin)": "https://www.orangefreesounds.com/wp-content/uploads/2018/12/Frederic-Chopin-prelude-in-E-minor-op.28-no.4.mp3",
+        "Ave Maria (Schubert)": "https://www.orangefreesounds.com/wp-content/uploads/2018/07/Ave-maria-Schubert-classical-music.mp3"
     },
     "Uplifting": {
-        "Spring (Vivaldi)": "https://ia802605.us.archive.org/8/items/Antonio_Vivaldi_-_The_Four_Seasons_-_Spring/Antonio_Vivaldi_-_Spring_-_01_-_allegro.mp3",
-        "Ode to Joy (Beethoven)": "https://ia800201.us.archive.org/14/items/OdeToJoy_393/BeethovenOdeToJoy.mp3",
-        "Morning Mood (Grieg)": "https://ia903208.us.archive.org/19/items/GriegMorningMoodPeerGyntSuite/Grieg-MorningMoodPeerGyntSuite.mp3"
+        "Spring (Vivaldi)": "https://www.orangefreesounds.com/wp-content/uploads/2018/07/Antonio-Vivaldi-%E2%80%93-Spring-La-primavera-classical-music.mp3",
+        "Ode to Joy (Beethoven)": "https://www.orangefreesounds.com/wp-content/uploads/2020/02/Ode-to-joy-from-the-9th-Symphony-by-Beethoven.mp3",
+        "Water Music (Handel)": "https://www.orangefreesounds.com/wp-content/uploads/2020/02/Georg-Friedrich-H%C3%A4ndel-Water-Music-Air.mp3"
     }
 }
 
