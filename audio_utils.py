@@ -37,19 +37,19 @@ AMBIENT_SOUNDS = {
 
 CLASSICAL_MUSIC = {
     "Calm": {
-        "Gymnopédie No.1 (Erik Satie)": "https://www.dropbox.com/scl/fi/g4h8k7pji2e7jytdhvcm7/erik-satie-gymnopedie-no-1.mp3?rlkey=lzzgxpjc6aahxm87w3qjbxl0o&dl=1",
-        "Clair de Lune (Debussy)": "https://www.dropbox.com/scl/fi/fmxgjpgdxyww5iazklxri/debussy-clair-de-lune.mp3?rlkey=vl9kxjijlb5btfaxbz4y12jzj&dl=1",
-        "Canon in D (Pachelbel)": "https://www.dropbox.com/scl/fi/2bnjc1gysb8y2f2zk0i66/pachelbel-canon-in-d.mp3?rlkey=y3a0nzh3e6vb6oxupdqr2m3ga&dl=1"
+        "Gymnopédie No.1 (Erik Satie)": "https://ia800507.us.archive.org/14/items/18gymnopediens1/01_gymnopedies_1.mp3",
+        "Clair de Lune (Debussy)": "https://ia801009.us.archive.org/11/items/ClairDeLune_653/Debussy-ClairDeLune.mp3",
+        "Canon in D (Pachelbel)": "https://ia800201.us.archive.org/12/items/PachelbelCanonInD_595/PachelbelCanonInD.mp3"
     },
     "Melancholic": {
-        "Moonlight Sonata (Beethoven)": "https://www.dropbox.com/scl/fi/s96jjrptgr5t14hdl4rzg/beethoven-moonlight-sonata-1st-mvt.mp3?rlkey=jnk7vt1c6uxn4zzwbx49cqfgn&dl=1",
-        "Prelude in E-Minor (Chopin)": "https://www.dropbox.com/scl/fi/8i4wr7xrjw0a04ijsbnhc/chopin-prelude-e-minor.mp3?rlkey=n12sehcyiupp8hj47cjyxzlsm&dl=1",
-        "Adagio for Strings (Barber)": "https://www.dropbox.com/scl/fi/j0vij5m31nhhd1d7pfnre/barber-adagio-for-strings.mp3?rlkey=rg6k3yhcwuty55a3t8i8vynfd&dl=1"
+        "Moonlight Sonata (Beethoven)": "https://ia800906.us.archive.org/14/items/BeethovenMoonlightSonata1stMovement/Beethoven-MoonlightSonata1stMovement.mp3",
+        "Prelude in E-Minor (Chopin)": "https://ia800307.us.archive.org/34/items/Chopin-PreludeInE-minorOp.28No.4/Chopin-PreludeInE-minorOp.28No.4.mp3",
+        "Adagio for Strings (Barber)": "https://ia600303.us.archive.org/21/items/SamuelBarberAdagioForStrings/SamuelBarberAdagioForStrings.mp3"
     },
     "Uplifting": {
-        "Spring (Vivaldi)": "https://www.dropbox.com/scl/fi/o5i02rzmzawp2q3gqclud/vivaldi-spring-allegro.mp3?rlkey=ihu5mf1jy6cvwnzgx0r1e5wd4&dl=1",
-        "Ode to Joy (Beethoven)": "https://www.dropbox.com/scl/fi/qgm8eelgjuv7y5laxk2c5/beethoven-ode-to-joy.mp3?rlkey=0dhtgj9l5hnnfkx80sgj7w5r0&dl=1",
-        "Morning Mood (Grieg)": "https://www.dropbox.com/scl/fi/vthaqwnj1t9ogltokwl6d/grieg-morning-mood.mp3?rlkey=q9hrrjzg9t5prmaxfmyxvl5p1&dl=1"
+        "Spring (Vivaldi)": "https://ia802605.us.archive.org/8/items/Antonio_Vivaldi_-_The_Four_Seasons_-_Spring/Antonio_Vivaldi_-_Spring_-_01_-_allegro.mp3",
+        "Ode to Joy (Beethoven)": "https://ia800201.us.archive.org/14/items/OdeToJoy_393/BeethovenOdeToJoy.mp3",
+        "Morning Mood (Grieg)": "https://ia903208.us.archive.org/19/items/GriegMorningMoodPeerGyntSuite/Grieg-MorningMoodPeerGyntSuite.mp3"
     }
 }
 
@@ -74,16 +74,25 @@ def download_audio(url, category, name):
         if os.path.exists(file_path):
             return file_path
         
+        # Print debug information
+        print(f"Downloading audio from: {url}")
+        
         # Download the file
         response = requests.get(url)
         if response.status_code == 200:
             with open(file_path, 'wb') as f:
                 f.write(response.content)
+            print(f"Audio downloaded successfully to: {file_path}")
             return file_path
         else:
-            raise Exception(f"Failed to download audio: {response.status_code}")
+            error_msg = f"Failed to download audio: {response.status_code}"
+            print(error_msg)
+            st.error(error_msg)
+            return None
     except Exception as e:
-        st.error(f"Error downloading audio: {e}")
+        error_msg = f"Error downloading audio: {str(e)}"
+        print(error_msg)
+        st.error(error_msg)
         return None
 
 def get_audio_file(audio_type, category, name):
@@ -191,9 +200,69 @@ def add_audio_to_video(video_path, audio_path, output_path, loop_audio=True):
         st.error(f"Error adding audio to video: {e}")
         return None
 
+# Download initial sample files on module load
+def download_sample_files():
+    """Pre-downloads sample audio files for testing"""
+    sample_files = {}
+    
+    # Download one sample from each category
+    try:
+        # Ambient sample
+        ambient_category = list(AMBIENT_SOUNDS.keys())[0]
+        ambient_name = list(AMBIENT_SOUNDS[ambient_category].keys())[0]
+        ambient_url = AMBIENT_SOUNDS[ambient_category][ambient_name]
+        ambient_file = download_audio(ambient_url, ambient_category, ambient_name)
+        if ambient_file:
+            sample_files['ambient'] = ambient_file
+        
+        # Classical sample
+        music_category = list(CLASSICAL_MUSIC.keys())[0]
+        music_name = list(CLASSICAL_MUSIC[music_category].keys())[0]
+        music_url = CLASSICAL_MUSIC[music_category][music_name]
+        music_file = download_audio(music_url, music_category, music_name)
+        if music_file:
+            sample_files['classical'] = music_file
+            
+        print(f"Sample files downloaded: {sample_files}")
+        return sample_files
+    except Exception as e:
+        print(f"Error downloading sample files: {e}")
+        return {}
+
 # Streamlit interface for testing
 def audio_ui_test():
     st.title("Ambience Audio Selector")
+    
+    # Display debug information
+    st.write("This is a testing interface for the audio feature. If you encounter errors, please check the logs.")
+    
+    # Check if ffmpeg is available
+    try:
+        import shutil
+        ffmpeg_path = shutil.which('ffmpeg')
+        if ffmpeg_path:
+            st.success(f"FFmpeg found at: {ffmpeg_path}")
+        else:
+            st.warning("FFmpeg executable not found in PATH. Some features may not work.")
+    except Exception as e:
+        st.warning(f"Could not check for FFmpeg: {e}")
+    
+    # Pre-download sample files
+    if 'sample_files' not in st.session_state:
+        st.session_state.sample_files = download_sample_files()
+        
+    if st.session_state.sample_files:
+        st.success("Sample audio files downloaded successfully. You can play them below.")
+        
+        # Display sample ambient sound
+        if 'ambient' in st.session_state.sample_files:
+            st.subheader("Sample Ambient Sound")
+            st.audio(st.session_state.sample_files['ambient'])
+            
+        # Display sample classical music
+        if 'classical' in st.session_state.sample_files:
+            st.subheader("Sample Classical Music")
+            st.audio(st.session_state.sample_files['classical'])
     
     # Audio type selection
     audio_type = st.selectbox("Audio Type", 
@@ -223,10 +292,19 @@ def audio_ui_test():
                                        list(ambient_options.keys()))
         st.session_state.ambient_sound = selected_ambient
         
-        # Download and display audio for preview
+        # Download the audio file
         ambient_url = ambient_options[selected_ambient]
-        st.audio(ambient_url)
-    
+        try:
+            audio_file = get_audio_file("Ambient Sounds", ambient_category, selected_ambient)
+            if audio_file and os.path.exists(audio_file):
+                st.success(f"Audio file downloaded to: {audio_file}")
+                st.audio(audio_file)
+            else:
+                st.warning("Could not download audio file. Trying direct URL...")
+                st.audio(ambient_url)
+        except Exception as e:
+            st.error(f"Error playing audio: {e}")
+            
     # Classical music options
     if audio_type in ["Classical Music", "Combine Both"]:
         music_category = st.selectbox("Music Mood", 
@@ -239,9 +317,18 @@ def audio_ui_test():
                                      list(music_options.keys()))
         st.session_state.music_track = selected_music
         
-        # Download and display music for preview
+        # Download the audio file
         music_url = music_options[selected_music]
-        st.audio(music_url)
+        try:
+            audio_file = get_audio_file("Classical Music", music_category, selected_music)
+            if audio_file and os.path.exists(audio_file):
+                st.success(f"Audio file downloaded to: {audio_file}")
+                st.audio(audio_file)
+            else:
+                st.warning("Could not download audio file. Trying direct URL...")
+                st.audio(music_url)
+        except Exception as e:
+            st.error(f"Error playing audio: {e}")
     
     # Volume mixing if combining both
     if audio_type == "Combine Both":
