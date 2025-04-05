@@ -463,42 +463,63 @@ def check_files(files, details=False):
             results.append((file, exists, 0, ""))
     return results
 
-def generate_optimized_prompt(prompt):
-    """Generate a single optimized prompt from the combined prompt."""
+def generate_optimized_prompts(prompt, count=4):
+    """Generate multiple optimized prompts from the combined prompt."""
     # Base prompt template
     user_image_prompt = f"""
-    Give me a highly detailed prompt to provide to an image generator based on the scene description below. The image should be highly detailed and textured, like a heavily stylized and realistic illustration. The scene is magical, colorful, awe-inspiring. emphasize architecture, subject placement, and details that resonate deeply. Be imaginative and descriptive. IMPORTANT: try your best to incorporate elements that have subtle movement because the image is ultimately going to be used to create a looping video which will serve as background ambience, so if there is water, we will want that flowing, if there is tall grass, we want that blowing in the breeze, if there is smoke, we want to see it, if there are animals, we want them grazing or walking, etc.
+    Give me {count} different and creative highly detailed prompts to provide to an image generator based on the scene description below. Each prompt should be highly detailed and textured, like a heavily stylized and realistic illustration. The scene should be magical, colorful, awe-inspiring with different variations in architecture, subject placement, and details that resonate deeply. Be imaginative and descriptive with each variation. IMPORTANT: try your best to incorporate elements that have subtle movement because the image is ultimately going to be used to create a looping video which will serve as background ambience, so if there is water, we will want that flowing, if there is tall grass, we want that blowing in the breeze, if there is smoke, we want to see it, if there are animals, we want them grazing or walking, etc.
 
-    Ensure logical consistency - walking paths and streams should lead somewhere and not stop randomly, gates should but connected to a wall or fence and not standing by themselves, etc. Add thoughtful details that give a rich backstory to the image.
+    Ensure logical consistency in each prompt - walking paths and streams should lead somewhere and not stop randomly, gates should be connected to a wall or fence and not standing by themselves, etc. Add thoughtful details that give a rich backstory to the image.
 
-    The beauty should be fairytale-like. Perfect lighting, one in a million compositions, surreal colors. This image should be the ideal and perfect example of the scene.
+    The beauty should be fairytale-like in each prompt. Perfect lighting, one in a million compositions, surreal colors. Each prompt should be the ideal and perfect example of the scene, but with meaningful variations in style, mood, perspective, or time of day.
     
     avoid chaotic, busy scenes and prefer beautiful, more minimal, well-balanced scenes.
+
+    Format your answer as exactly {count} separate prompts, each on its own line starting with "PROMPT 1:", "PROMPT 2:", etc.
 
     description: {prompt}
     """
     
-    # Generate a single optimized prompt
+    # Generate multiple optimized prompts
     try:
         output = replicate.run(
             "anthropic/claude-3.7-sonnet", 
             input={
                 "prompt": user_image_prompt,
                 "temperature": 0.7,
-                "max_tokens": 1024
+                "max_tokens": 2048
             }
         )
         optimized = "".join(output)
         
-        # Return the optimized prompt if successful
+        # Parse the output to extract the individual prompts
+        prompts = []
         if optimized:
-            return optimized
+            for i in range(1, count+1):
+                marker = f"PROMPT {i}:"
+                next_marker = f"PROMPT {i+1}:" if i < count else None
+                
+                start_idx = optimized.find(marker)
+                if start_idx != -1:
+                    start_idx += len(marker)
+                    end_idx = optimized.find(next_marker, start_idx) if next_marker else len(optimized)
+                    prompt_text = optimized[start_idx:end_idx].strip()
+                    prompts.append(prompt_text)
+            
+            # If we didn't get enough prompts, fill with variations
+            while len(prompts) < count:
+                if prompts:
+                    prompts.append(f"{prompts[0]} (variation {len(prompts)+1})")
+                else:
+                    prompts.append(f"Enhanced version of: {prompt} (variation {len(prompts)+1})")
+            
+            return prompts
         else:
-            st.error("Failed to generate optimized prompt")
-            return None
+            st.error("Failed to generate optimized prompts")
+            return [f"Enhanced version of: {prompt}"] * count
     except Exception as e:
-        st.error(f"Error generating optimized prompt: {e}")
-        return None
+        st.error(f"Error generating optimized prompts: {e}")
+        return [f"Enhanced version of: {prompt}"] * count
 
 # Main UI layout
 st.title("Ambience Video Creator")
@@ -539,25 +560,28 @@ if st.session_state.step == 1:
     
     if st.button("Generate Images"):
         if prompt:
-            with st.spinner("Generating optimized prompt..."):
+            with st.spinner("Generating optimized prompts..."):
                 st.session_state.prompt = prompt
                 
-                # Generate single optimized prompt
-                optimized_prompt = generate_optimized_prompt(prompt)
+                # Generate multiple optimized prompts
+                optimized_prompts = generate_optimized_prompts(prompt, count=4)
                 
-                if optimized_prompt:
-                    # Store the optimized prompt
-                    st.session_state.selected_prompt = optimized_prompt
+                if optimized_prompts:
+                    # Store the optimized prompts
+                    st.session_state.optimized_prompts = optimized_prompts
                     
                     # Save state before moving on
                     save_step_state(1)
                     
-                    # Display the generated prompt
-                    st.success("Optimized prompt generated!")
-                    st.text_area("Generated Prompt", optimized_prompt, height=200)
+                    # Display the generated prompts
+                    st.success(f"Generated {len(optimized_prompts)} optimized prompts!")
                     
-                    # Generate images from this prompt
-                    with st.spinner("Generating images from the optimized prompt..."):
+                    for i, opt_prompt in enumerate(optimized_prompts):
+                        with st.expander(f"Prompt {i+1}"):
+                            st.text_area(f"Optimized Prompt {i+1}", opt_prompt, height=150)
+                    
+                    # Generate images from these prompts - one image per prompt
+                    with st.spinner("Generating images from the optimized prompts..."):
                         try:
                             image_paths = []
                             
@@ -565,15 +589,15 @@ if st.session_state.step == 1:
                             st.write("Generating images...")
                             progress_bar = st.progress(0)
                             
-                            # Generate 4 images instead of 2
-                            for j in range(4):
-                                progress_bar.progress((j) / 4)
-                                st.write(f"Generating image {j+1}/4...")
+                            # Generate 1 image from each prompt
+                            for j, opt_prompt in enumerate(optimized_prompts):
+                                progress_bar.progress((j) / len(optimized_prompts))
+                                st.write(f"Generating image {j+1}/{len(optimized_prompts)}...")
                                 
                                 image_output = replicate.run(
                                     "google/imagen-3",
                                     input={
-                                        "prompt": optimized_prompt,
+                                        "prompt": opt_prompt,
                                         "aspect_ratio": "16:9",
                                         "negative_prompt": "fast movement",
                                         "safety_filter_level": "block_medium_and_above"
@@ -593,7 +617,7 @@ if st.session_state.step == 1:
                                     # Display a thumbnail of the image
                                     try:
                                         img = Image.open(image_path)
-                                        st.image(img, caption=f"Image {j+1}", width=300)
+                                        st.image(img, caption=f"Image {j+1} from Prompt {j+1}", width=300)
                                     except Exception as e:
                                         st.error(f"Error displaying thumbnail: {e}")
                                 else:
@@ -622,29 +646,29 @@ if st.session_state.step == 1:
                             st.error(f"Error generating images: {e}")
                             st.error(f"Exception details: {str(e)}")
                 else:
-                    st.error("Failed to generate prompt. Please try again.")
+                    st.error("Failed to generate prompts. Please try again.")
 
 # Step 3: Image selection
 elif st.session_state.step == 3:
     st.header("Step 3: Select an Image")
     
     # Add "Regenerate Images" button
-    if st.button("🔄 Regenerate Images", help="Generate new images using the same prompt"):
-        if st.session_state.selected_prompt:
+    if st.button("🔄 Regenerate Images", help="Generate new images using the same prompts"):
+        if st.session_state.optimized_prompts:
             with st.spinner("Generating new images..."):
                 try:
                     image_paths = []
                     progress_bar = st.progress(0)
                     
-                    # Generate 4 new images
-                    for j in range(4):
-                        progress_bar.progress((j) / 4)
-                        st.write(f"Generating image {j+1}/4...")
+                    # Generate 1 new image for each prompt
+                    for j, opt_prompt in enumerate(st.session_state.optimized_prompts):
+                        progress_bar.progress((j) / len(st.session_state.optimized_prompts))
+                        st.write(f"Generating image {j+1}/{len(st.session_state.optimized_prompts)}...")
                         
                         image_output = replicate.run(
                             "google/imagen-3",
                             input={
-                                "prompt": st.session_state.selected_prompt,
+                                "prompt": opt_prompt,
                                 "aspect_ratio": "16:9",
                                 "negative_prompt": "fast movement",
                                 "safety_filter_level": "block_medium_and_above"
@@ -668,10 +692,11 @@ elif st.session_state.step == 3:
                 except Exception as e:
                     st.error(f"Error regenerating images: {e}")
     
-    # If we have the optimized prompt, display it
-    if st.session_state.selected_prompt:
-        with st.expander("Show Optimized Prompt"):
-            st.text_area("Prompt Used", st.session_state.selected_prompt, height=150)
+    # If we have the optimized prompts, display them
+    if st.session_state.optimized_prompts:
+        with st.expander("Show Optimized Prompts"):
+            for i, opt_prompt in enumerate(st.session_state.optimized_prompts):
+                st.text_area(f"Prompt {i+1}", opt_prompt, height=100)
     
     # Add debug info
     st.write(f"Found {len(st.session_state.generated_images)} generated images")
@@ -703,7 +728,8 @@ elif st.session_state.step == 3:
                     # Try to load with PIL first to verify the image is valid
                     try:
                         img = Image.open(image_path)
-                        st.image(img, caption=f"Option {i+1}")
+                        idx = i if i < len(st.session_state.optimized_prompts) else 0
+                        st.image(img, caption=f"Option {i+1} (Prompt {idx+1})")
                     except Exception as e:
                         st.error(f"Error loading image with PIL: {e}")
                         # Fallback to direct file path
@@ -711,6 +737,8 @@ elif st.session_state.step == 3:
                     
                     if st.button(f"Select Image {i+1}"):
                         st.session_state.selected_image_path = image_path
+                        idx = i if i < len(st.session_state.optimized_prompts) else 0
+                        st.session_state.selected_prompt = st.session_state.optimized_prompts[idx]
                         
                         # Upscale the selected image
                         with st.spinner("Upscaling your selected image..."):
