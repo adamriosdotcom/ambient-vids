@@ -1088,6 +1088,10 @@ if 'audio_added' in st.session_state and st.session_state.audio_added:
         audio_name = os.path.basename(st.session_state.selected_audio_path)
         st.sidebar.write(f"Track: {audio_name}")
 
+# Define step formatting constants
+completed_step = "✅ "
+current_step = "🔄 "
+
 # Sidebar for workflow tracking
 with st.sidebar:
     st.header("Workflow Steps")
