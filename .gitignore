@@ -1,0 +1,39 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Streamlit specific
+.streamlit/
+
+# Environment variables and secrets
+.env
+*.env
+
+# Media files generated during runtime
+*.mp4
+*.png
+*.jpg
+*.wav
+*.mp3
+
+# Logs
+*.log
+workflow_log.txt
+
+# Data files
+inventory.csv
+
+# Temporary files
+temp_*
+*.temp 
