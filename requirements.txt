@@ -6,4 +6,5 @@ python-dotenv==1.0.0
 replicate==0.21.1
 ffmpeg-python==0.2.0
 torch==2.1.0
-pillow==10.1.0 
+pillow==10.1.0
+requests==2.31.0 
