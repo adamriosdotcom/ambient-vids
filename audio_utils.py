@@ -217,13 +217,14 @@ def add_audio_to_video(video_path, audio_path, output_path, loop_audio=True):
             temp_audio = "temp_looped_audio.mp3"
             loop_count = int(np.ceil(video_duration / audio_duration))
             
-            input_list = []
-            for i in range(loop_count):
-                input_list.append(ffmpeg.input(audio_path))
+            # Use filter_complex to loop audio instead of concat
+            loop_filter = f"aloop=loop={loop_count-1}:size=2e+09"
             
             (
-                ffmpeg.concat(*input_list, v=0, a=1)
-                .output(temp_audio)
+                ffmpeg
+                .input(audio_path)
+                .filter(loop_filter)
+                .output(temp_audio, to=str(video_duration))
                 .overwrite_output()
                 .run(quiet=True)
             )
@@ -233,7 +234,7 @@ def add_audio_to_video(video_path, audio_path, output_path, loop_audio=True):
                 ffmpeg
                 .input(video_path)
                 .input(temp_audio)
-                .output(output_path, vcodec='copy', acodec='aac', map=['0:v', '1:a'], shortest=None)
+                .output(output_path, vcodec='copy', acodec='aac', shortest=None)
                 .overwrite_output()
                 .run(quiet=True)
             )
@@ -246,7 +247,7 @@ def add_audio_to_video(video_path, audio_path, output_path, loop_audio=True):
                 ffmpeg
                 .input(video_path)
                 .input(audio_path)
-                .output(output_path, vcodec='copy', acodec='aac', map=['0:v', '1:a'], shortest=None)
+                .output(output_path, vcodec='copy', acodec='aac', shortest=None)
                 .overwrite_output()
                 .run(quiet=True)
             )
