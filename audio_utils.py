@@ -168,7 +168,7 @@ def add_audio_to_video(video_path, audio_path, output_path, loop_audio=True):
                 ffmpeg
                 .input(video_path)
                 .input(temp_audio)
-                .output(output_path, vcodec='copy', acodec='aac', map='0:v', map='1:a', shortest=None)
+                .output(output_path, vcodec='copy', acodec='aac', map=['0:v', '1:a'], shortest=None)
                 .overwrite_output()
                 .run(quiet=True)
             )
@@ -181,7 +181,7 @@ def add_audio_to_video(video_path, audio_path, output_path, loop_audio=True):
                 ffmpeg
                 .input(video_path)
                 .input(audio_path)
-                .output(output_path, vcodec='copy', acodec='aac', map='0:v', map='1:a', shortest=None)
+                .output(output_path, vcodec='copy', acodec='aac', map=['0:v', '1:a'], shortest=None)
                 .overwrite_output()
                 .run(quiet=True)
             )
