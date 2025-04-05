@@ -215,44 +215,38 @@ def add_audio_to_video(video_path, audio_path, output_path, loop_audio=True):
         if loop_audio and audio_duration < video_duration:
             # Create a temporary file for the looped audio
             temp_audio = "temp_looped_audio.mp3"
+            
+            # Simple approach: Use ffmpeg's concat demuxer with a concat file
+            concat_file = "concat_list.txt"
             loop_count = int(np.ceil(video_duration / audio_duration))
             
-            # Use filter_complex to loop audio instead of concat
-            loop_filter = f"aloop=loop={loop_count-1}:size=2e+09"
+            # Create the concat file
+            with open(concat_file, "w") as f:
+                for i in range(loop_count):
+                    f.write(f"file '{audio_path}'\n")
             
-            (
-                ffmpeg
-                .input(audio_path)
-                .filter(loop_filter)
-                .output(temp_audio, to=str(video_duration))
-                .overwrite_output()
-                .run(quiet=True)
-            )
+            # Concatenate audio files using concat demuxer
+            os.system(f'ffmpeg -f concat -safe 0 -i {concat_file} -c copy {temp_audio} -y')
             
-            # Now add the looped audio to the video
-            (
-                ffmpeg
-                .input(video_path)
-                .input(temp_audio)
-                .output(output_path, vcodec='copy', acodec='aac', shortest=None)
-                .overwrite_output()
-                .run(quiet=True)
-            )
+            # Now add the looped audio to the video using direct command
+            os.system(f'ffmpeg -i {video_path} -i {temp_audio} -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -shortest {output_path} -y')
             
-            # Clean up temp file
-            os.remove(temp_audio)
+            # Clean up temp files
+            if os.path.exists(temp_audio):
+                os.remove(temp_audio)
+            if os.path.exists(concat_file):
+                os.remove(concat_file)
         else:
-            # Add audio directly (without looping)
-            (
-                ffmpeg
-                .input(video_path)
-                .input(audio_path)
-                .output(output_path, vcodec='copy', acodec='aac', shortest=None)
-                .overwrite_output()
-                .run(quiet=True)
-            )
+            # Add audio directly using os.system for reliable operation
+            os.system(f'ffmpeg -i {video_path} -i {audio_path} -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -shortest {output_path} -y')
         
-        return output_path
+        # Check if the output file was created successfully
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+            return output_path
+        else:
+            st.error(f"Error: Output file {output_path} was not created properly")
+            return None
+            
     except Exception as e:
         st.error(f"Error adding audio to video: {e}")
         return None
