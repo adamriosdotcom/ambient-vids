@@ -168,12 +168,14 @@ if 'step' not in st.session_state:
     st.session_state.step = 1
 if 'run_id' not in st.session_state:
     st.session_state.run_id = str(uuid.uuid4())[:8]
-if 'scene_prompt' not in st.session_state:
-    st.session_state.scene_prompt = ""
-if 'subjects_prompt' not in st.session_state:
-    st.session_state.subjects_prompt = ""
+if 'scene_result' not in st.session_state:
+    st.session_state.scene_result = None
+if 'all_prompts' not in st.session_state:
+    st.session_state.all_prompts = []
 if 'optimized_prompts' not in st.session_state:
     st.session_state.optimized_prompts = []
+if 'prompt' not in st.session_state:
+    st.session_state.prompt = ""
 if 'selected_prompt' not in st.session_state:
     st.session_state.selected_prompt = ""
 if 'generated_images' not in st.session_state:
@@ -389,20 +391,19 @@ def check_files(files, details=False):
             results.append((file, exists, 0, ""))
     return results
 
-def generate_optimized_prompt(scene, subjects):
-    """Generate a single optimized prompt from scene and subjects."""
+def generate_optimized_prompt(prompt):
+    """Generate a single optimized prompt from the combined prompt."""
     # Base prompt template
     user_image_prompt = f"""
-    Give me a highly detailed prompt to provide to an image generator based on the scene and subjects below. The image should be highly detailed and textured, like a heavily stylized and realistic illustration. The scene is magical, colorful, awe-inspiring. emphasize architecture, subject placement, and details that resonate deeply. Be imaginative and descriptive. IMPORTANT: try your best to incorporate elements that have subtle movement because the image is ultimately going to be used to create a looping video which will serve as background ambience, so if there is water, we will want that flowing, if there is tall grass, we want that blowing in the breeze, if there is smoke, we want to see it, if there are animals, we want them grazing or walking, etc.
+    Give me a highly detailed prompt to provide to an image generator based on the scene description below. The image should be highly detailed and textured, like a heavily stylized and realistic illustration. The scene is magical, colorful, awe-inspiring. emphasize architecture, subject placement, and details that resonate deeply. Be imaginative and descriptive. IMPORTANT: try your best to incorporate elements that have subtle movement because the image is ultimately going to be used to create a looping video which will serve as background ambience, so if there is water, we will want that flowing, if there is tall grass, we want that blowing in the breeze, if there is smoke, we want to see it, if there are animals, we want them grazing or walking, etc.
 
     Ensure logical consistency - walking paths and streams should lead somewhere and not stop randomly, gates should but connected to a wall or fence and not standing by themselves, etc. Add thoughtful details that give a rich backstory to the image.
 
     The beauty should be fairytale-like. Perfect lighting, one in a million compositions, surreal colors. This image should be the ideal and perfect example of the scene.
-
-    avoid chaotic, busy scenes and prefer beautiful, more minimal, well-balanced scenes.
     
-    scene: {scene}
-    subjects: {subjects}
+    avoid chaotic, busy scenes and prefer beautiful, more minimal, well-balanced scenes.
+
+    description: {prompt}
     """
     
     # Generate a single optimized prompt
@@ -434,19 +435,17 @@ st.title("Ambience Video Creator")
 if st.session_state.step == 1:
     st.header("Step 1: Enter Your Scene Description")
     
-    scene = st.text_input("Scene description (e.g., 'a cozy library at night')", 
-                          value=st.session_state.scene_prompt or "a cozy cabin in a snowy forest")
-    subjects = st.text_input("Subjects (e.g., 'a cat curled up on a chair')",
-                             value=st.session_state.subjects_prompt or "a crackling fireplace with soft embers")
+    prompt = st.text_area("Description (e.g., 'a cozy library at night with a cat curled up on a chair')", 
+                         value=st.session_state.prompt or "a cozy cabin in a snowy forest with a crackling fireplace with soft embers",
+                         height=100)
     
     if st.button("Generate Images"):
-        if scene and subjects:
+        if prompt:
             with st.spinner("Generating optimized prompt..."):
-                st.session_state.scene_prompt = scene
-                st.session_state.subjects_prompt = subjects
+                st.session_state.prompt = prompt
                 
                 # Generate single optimized prompt
-                optimized_prompt = generate_optimized_prompt(scene, subjects)
+                optimized_prompt = generate_optimized_prompt(prompt)
                 
                 if optimized_prompt:
                     # Store the optimized prompt
@@ -1043,13 +1042,13 @@ elif st.session_state.step == 7:
     
     if st.button("Start Over"):
         # Reset all session state
-        for key in st.session_state.keys():
+        for key in list(st.session_state.keys()):
             if key != 'step':
-                st.session_state[key] = None if key not in ['run_id', 'scene_prompt', 'subjects_prompt', 'optimized_prompts', 
+                st.session_state[key] = None if key not in ['run_id', 'prompt', 'optimized_prompts', 
                                                            'generated_images', 'generated_videos', 
                                                            'clip_paths', 'loop_count', 'target_duration'] else (
                     str(uuid.uuid4())[:8] if key == 'run_id' else (
-                        "" if key in ['scene_prompt', 'subjects_prompt'] else (
+                        "" if key == 'prompt' else (
                             [] if key in ['optimized_prompts', 'generated_images', 'generated_videos', 'clip_paths'] else (
                                 1 if key == 'loop_count' else 30))))
         st.session_state.step = 1
@@ -1087,4 +1086,36 @@ if 'audio_added' in st.session_state and st.session_state.audio_added:
     st.sidebar.markdown("### 🎵 Audio Added")
     if 'selected_audio_path' in st.session_state and st.session_state.selected_audio_path:
         audio_name = os.path.basename(st.session_state.selected_audio_path)
-        st.sidebar.write(f"Track: {audio_name}") 
+        st.sidebar.write(f"Track: {audio_name}")
+
+# Sidebar for workflow tracking
+with st.sidebar:
+    st.header("Workflow Steps")
+    
+    # Check if any steps are completed
+    if st.session_state.step >= 1:
+        st.markdown(completed_step if st.session_state.step > 1 else current_step + " Enter Scene Description & Generate Images")
+    if st.session_state.step >= 3:
+        st.markdown(completed_step if st.session_state.step > 3 else current_step + " Select an Image")
+    if st.session_state.step >= 4:
+        st.markdown(completed_step if st.session_state.step > 4 else current_step + " Select Initial Video")
+    if st.session_state.step >= 5:
+        st.markdown(completed_step if st.session_state.step > 5 else current_step + " Select Final Video")
+    if st.session_state.step >= 6:
+        st.markdown(completed_step if st.session_state.step > 6 else current_step + " Choose Video Length")
+    if st.session_state.step >= 7:
+        st.markdown(completed_step if st.session_state.step > 7 else current_step + " Final Video Settings & Audio")
+
+# Reset session state function
+def reset_session_state():
+    for key in list(st.session_state.keys()):
+        if key != 'step':
+            st.session_state[key] = None if key not in ['run_id', 'prompt', 'optimized_prompts', 
+                                                       'generated_images', 'generated_videos', 
+                                                       'clip_paths', 'loop_count', 'target_duration'] else (
+                str(uuid.uuid4())[:8] if key == 'run_id' else (
+                    "" if key == 'prompt' else (
+                        [] if key in ['optimized_prompts', 'generated_images', 'generated_videos', 'clip_paths'] else (
+                            1 if key == 'loop_count' else 30))))
+    st.session_state.step = 1
+    st.experimental_rerun() 
