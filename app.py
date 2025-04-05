@@ -16,6 +16,9 @@ from PIL import Image
 import uuid
 import base64
 import io
+import glob
+import requests
+import shutil
 
 # Load environment variables
 load_dotenv()
@@ -24,6 +27,141 @@ REPLICATE_API_TOKEN = os.getenv('REPLICATE_API_TOKEN')
 # Configuration parameters
 CLIP_DURATION = 10  # 10 seconds per clip (changed from 5)
 NUM_LOOPS = 2      # Loop final video twice
+
+# Constants for audio resources
+AUDIO_DIR = "audio_resources"
+CLASSICAL_DIR = "100ClassicalMusicMasterpieces"
+
+# Initialize available classical music once at app startup
+def find_matching_files():
+    available_classical = {}
+    
+    # Check if classical directory exists
+    classical_dir = os.path.abspath(CLASSICAL_DIR)
+    if not os.path.exists(classical_dir):
+        print(f"Classical music directory {classical_dir} not found")
+        return available_classical
+    
+    # Define categories for classical music based on mood/style
+    CLASSICAL_CATEGORIES = {
+        "Calm": [
+            "1825 Schubert - Ave Maria.mp3",
+            "1875 Faure - Pavane.mp3",
+            "1890 Debussy - Clair de Lune.mp3",
+            "1888 Satie - Gymnopédie No.1.mp3",
+            "1877 Saint-Saens - The Swan.mp3"
+        ],
+        "Melancholic": [
+            "1827 Beethoven - Moonlight Sonata.mp3",
+            "1838 Chopin - Nocturne Op. 9 No. 2.mp3",
+            "1903 Sibelius - Valse Triste.mp3",
+            "1822 Schubert - Symphony No.8 in B minor, 'Unfinished'.mp3"
+        ],
+        "Uplifting": [
+            "1723 Vivaldi - The Four Seasons - Spring.mp3",
+            "1785 Mozart - Eine Kleine Nachtmusik.mp3",
+            "1823 Beethoven - Symphony No. 9, 'Choral' - Ode to Joy.mp3",
+            "1778 Rondo Alla Turca, from Piano Sonata in A.mp3"
+        ],
+        "Dramatic": [
+            "1870 Wagner- Ride of the Valkyries; from 'The Valkyrie'.mp3",
+            "1871 Grieg - In the Hall of the Mountain King.mp3",
+            "1798 Beethoven - Symphony No.5 in C minor - 1st movement.mp3"
+        ]
+    }
+    
+    # Go through each category and find files that match or contain the titles
+    for category, titles in CLASSICAL_CATEGORIES.items():
+        available_classical[category] = {}
+        
+        for title in titles:
+            # Get year and composer from the filename
+            parts = title.split(' ', 1)
+            if len(parts) > 1:
+                year = parts[0]
+                composer_title = parts[1]
+                
+                # Look for files matching this pattern
+                matches = []
+                for file in os.listdir(classical_dir):
+                    if file.endswith('.mp3') and (
+                        file == title or 
+                        composer_title in file or 
+                        any(composer.lower() in file.lower() for composer in composer_title.lower().split(' - ', 1))
+                    ):
+                        matches.append(file)
+                
+                if matches:
+                    # Use the best match (exact match preferred)
+                    best_match = matches[0]
+                    if title in matches:
+                        best_match = title
+                    
+                    # Extract just the composer and title for display
+                    display_name = composer_title
+                    file_path = os.path.join(classical_dir, best_match)
+                    if os.path.exists(file_path):
+                        available_classical[category][display_name] = file_path
+    
+    # If any category is empty, fill with some default files
+    for category in CLASSICAL_CATEGORIES.keys():
+        if not available_classical.get(category, {}):
+            available_classical[category] = {}
+            # Just take some mp3 files we can find
+            mp3_files = [os.path.join(classical_dir, f) for f in os.listdir(classical_dir) 
+                        if f.endswith('.mp3') and os.path.isfile(os.path.join(classical_dir, f))]
+            
+            for i, file in enumerate(mp3_files[:3]):
+                if os.path.exists(file):
+                    filename = os.path.basename(file)
+                    # Try to extract composer/title
+                    if " - " in filename:
+                        display_name = filename.split(" ", 1)[1]
+                    else:
+                        display_name = filename
+                    available_classical[category][display_name] = file
+    
+    return available_classical
+
+# Function to add audio to video
+def add_audio_to_video(video_path, audio_path, output_path, loop_audio=True):
+    """Adds audio to a video file, optionally looping the audio to match video length"""
+    try:
+        # Convert paths to absolute paths
+        video_path = os.path.abspath(video_path)
+        audio_path = os.path.abspath(audio_path)
+        output_path = os.path.abspath(output_path)
+        
+        # Get video duration
+        video_info = ffmpeg.probe(video_path)
+        video_duration = float(video_info['format']['duration'])
+        
+        # Get audio duration
+        audio_info = ffmpeg.probe(audio_path)
+        audio_duration = float(audio_info['format']['duration'])
+        
+        if loop_audio and audio_duration < video_duration:
+            # Create a direct ffmpeg command that uses stream_loop option
+            cmd = f'ffmpeg -i "{video_path}" -stream_loop -1 -i "{audio_path}" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -shortest "{output_path}" -y'
+            result = os.system(cmd)
+        else:
+            # Add audio directly (without looping)
+            cmd = f'ffmpeg -i "{video_path}" -i "{audio_path}" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -shortest "{output_path}" -y'
+            result = os.system(cmd)
+        
+        # Check if the output file was created successfully
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+            return output_path
+        else:
+            st.error(f"Error: Output file was not created properly")
+            return None
+            
+    except Exception as e:
+        st.error(f"Error adding audio to video: {e}")
+        return None
+
+# Initialize the available classical music files
+CLASSICAL_MUSIC = find_matching_files()
 
 # Initialize session state if needed
 if 'step' not in st.session_state:
@@ -60,6 +198,10 @@ if 'final_video_path' not in st.session_state:
     st.session_state.final_video_path = ""
 if 'target_duration' not in st.session_state:
     st.session_state.target_duration = 30
+if 'audio_added' not in st.session_state:
+    st.session_state.audio_added = False
+if 'selected_audio_path' not in st.session_state:
+    st.session_state.selected_audio_path = None
 
 # Utility functions
 def extract_frames(video_path):
@@ -776,25 +918,105 @@ elif st.session_state.step == 7:
                 estimated_duration = orig_duration * loops_to_use
                 st.write(f"Estimated final duration: {estimated_duration/60:.1f} minutes")
             
+            # Audio options section
+            st.subheader("Add Audio to Your Video")
+            
+            # Check if classical music directory exists
+            if os.path.exists(CLASSICAL_DIR) and sum(len(cat) for cat in CLASSICAL_MUSIC.values()) > 0:
+                st.success(f"Found {sum(len(cat) for cat in CLASSICAL_MUSIC.values())} classical music tracks")
+                audio_type = st.selectbox("Audio Type", ["None", "Classical Music", "Upload Your Own"])
+            else:
+                st.warning("Classical music directory not found. You can still upload your own audio.")
+                audio_type = st.selectbox("Audio Type", ["None", "Upload Your Own"])
+            
+            audio_file_path = None
+            
+            if audio_type == "Classical Music":
+                # Display music categories
+                music_category = st.selectbox("Music Mood", list(CLASSICAL_MUSIC.keys()))
+                
+                # Display music options based on mood
+                if CLASSICAL_MUSIC[music_category]:
+                    music_options = CLASSICAL_MUSIC[music_category]
+                    selected_music = st.selectbox("Choose Classical Track", list(music_options.keys()))
+                    
+                    # Display selected track for playback
+                    music_file = music_options[selected_music]
+                    if music_file and os.path.exists(music_file):
+                        st.success(f"Selected: {selected_music}")
+                        st.audio(music_file)
+                        audio_file_path = music_file
+                    else:
+                        st.error(f"File not found: {music_file}")
+                else:
+                    st.warning(f"No tracks available for {music_category}")
+                    
+            elif audio_type == "Upload Your Own":
+                custom_audio = st.file_uploader("Upload Audio File (MP3, WAV)", type=["mp3", "wav"])
+                if custom_audio is not None:
+                    # Save uploaded file to disk
+                    temp_path = f"uploaded_{custom_audio.name}"
+                    with open(temp_path, "wb") as f:
+                        f.write(custom_audio.read())
+                    st.success("Audio uploaded successfully!")
+                    st.audio(temp_path)
+                    audio_file_path = temp_path
+            
+            if audio_type != "None":
+                # Show audio volume control
+                audio_volume = st.slider("Audio Volume", 0.1, 1.0, 0.5, 0.1)
+            
+            # Create final video button
             if st.button("Create Final Video"):
+                video_with_audio = None
+                
                 with st.spinner(f"Creating final looped video..."):
                     # Loop the video the specified number of times
                     looped_output_path = f"{st.session_state.run_id}_looped_final.mp4"
                     loop_video(st.session_state.final_video_path, looped_output_path, loops_to_use)
-                    st.session_state.final_video_path = looped_output_path
+                    
+                    # Check if audio should be added
+                    if audio_type != "None" and audio_file_path and os.path.exists(audio_file_path):
+                        with st.spinner("Adding audio to video..."):
+                            st.session_state.selected_audio_path = audio_file_path
+                            video_with_audio = f"{st.session_state.run_id}_final_with_audio.mp4"
+                            
+                            # Adjust audio volume if needed
+                            if audio_volume != 1.0:
+                                temp_audio = f"temp_adjusted_audio.mp3"
+                                os.system(f'ffmpeg -i "{audio_file_path}" -filter:a "volume={audio_volume}" -y "{temp_audio}"')
+                                audio_to_use = temp_audio
+                            else:
+                                audio_to_use = audio_file_path
+                            
+                            # Add audio to the looped video
+                            result = add_audio_to_video(looped_output_path, audio_to_use, video_with_audio, loop_audio=True)
+                            
+                            # Clean up temp file
+                            if audio_volume != 1.0 and os.path.exists(temp_audio):
+                                os.remove(temp_audio)
+                            
+                            if result:
+                                st.session_state.final_video_path = video_with_audio
+                                st.session_state.audio_added = True
+                            else:
+                                st.error("Failed to add audio to video. Using video without audio.")
+                                st.session_state.final_video_path = looped_output_path
+                    else:
+                        st.session_state.final_video_path = looped_output_path
                     
                     st.success(f"🎉 Your ambience video is ready! It's been looped {loops_to_use} times.")
                     
-                    # Display final looped video
-                    st.subheader("Final Looped Video")
-                    st.video(looped_output_path)
+                    # Display final video
+                    st.subheader("Final Video")
+                    st.video(st.session_state.final_video_path)
                     
                     # Create download link
-                    with open(looped_output_path, "rb") as file:
+                    with open(st.session_state.final_video_path, "rb") as file:
                         btn = st.download_button(
                             label="Download Video",
                             data=file,
-                            file_name=f"ambience_{st.session_state.run_id}.mp4",
+                            file_name=f"ambience_{st.session_state.run_id}{'.with_audio' if st.session_state.audio_added else ''}.mp4",
                             mime="video/mp4"
                         )
         except Exception as e:
@@ -844,7 +1066,7 @@ workflow_stages = [
     "Select Initial Video",
     "Continue or Complete Loop",
     "Select Additional Videos",
-    "Final Video Settings"
+    "Final Video Settings & Audio"
 ]
 
 st.sidebar.markdown("### Workflow Stages")
@@ -857,4 +1079,12 @@ for i, stage in enumerate(workflow_stages):
     elif display_step == current_step:
         st.sidebar.markdown(f"🔄 {display_step}. {stage}")
     else:
-        st.sidebar.markdown(f"⏳ {display_step}. {stage}") 
+        st.sidebar.markdown(f"⏳ {display_step}. {stage}")
+
+# Display audio information if it's added
+if 'audio_added' in st.session_state and st.session_state.audio_added:
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🎵 Audio Added")
+    if 'selected_audio_path' in st.session_state and st.session_state.selected_audio_path:
+        audio_name = os.path.basename(st.session_state.selected_audio_path)
+        st.sidebar.write(f"Track: {audio_name}") 

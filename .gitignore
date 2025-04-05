@@ -36,4 +36,13 @@ inventory.csv
 
 # Temporary files
 temp_*
-*.temp 
+*.temp
+
+# Audio related files
+temp_adjusted_audio.mp3
+temp_ambient.mp3
+temp_music.mp3
+temp_looped_audio.mp3
+uploaded_*.mp3
+uploaded_*.wav
+audio_resources/ 
