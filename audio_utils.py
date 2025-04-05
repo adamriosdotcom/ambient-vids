@@ -14,24 +14,24 @@ AUDIO_DIR = "audio_resources"
 # Define dictionary of free audio resources
 AMBIENT_SOUNDS = {
     "Fireplace": {
-        "Crackling Fire": "https://freesound.org/data/previews/347/347172_5121236-lq.mp3",
-        "Fireplace with Wind": "https://freesound.org/data/previews/362/362042_5833740-lq.mp3",
-        "Cozy Evening Fire": "https://freesound.org/data/previews/195/195243_1038806-lq.mp3"
+        "Crackling Fire": "https://ia800901.us.archive.org/23/items/FireplaceCracklingSoundEffect/Fireplace%20Crackling%20Sound%20Effect.mp3",
+        "Fireplace with Wind": "https://ia601508.us.archive.org/24/items/soundscrate-fireplace-crackling-sound-effect/Soundscrate-fireplace-crackling-sound-effect.mp3", 
+        "Cozy Evening Fire": "https://ia600101.us.archive.org/7/items/fireplace-sound-hd/fireplace-sound-hd.mp3"
     },
     "Rain": {
-        "Gentle Rain": "https://freesound.org/data/previews/169/169255_2963332-lq.mp3",
-        "Thunderstorm": "https://freesound.org/data/previews/435/435752_6142149-lq.mp3",
-        "Rain on Window": "https://freesound.org/data/previews/258/258557_4631955-lq.mp3"
+        "Gentle Rain": "https://ia801002.us.archive.org/27/items/MediumRain/Medium%20Rain.mp3",
+        "Thunderstorm": "https://ia800503.us.archive.org/8/items/ThunderstormRainSoundEffectsHighQuality/Thunderstorm%20Rain%20Sound%20Effects%20-%20High%20Quality.mp3",
+        "Rain on Window": "https://ia801002.us.archive.org/14/items/RainOnRoofWindows/Rain%20On%20Roof%20%26%20Windows.mp3"
     },
     "Forest": {
-        "Forest Ambience": "https://freesound.org/data/previews/459/459997_4766846-lq.mp3",
-        "Bird Chirping": "https://freesound.org/data/previews/501/501948_7587775-lq.mp3",
-        "Woodland Stream": "https://freesound.org/data/previews/163/163578_2858355-lq.mp3"
+        "Forest Ambience": "https://ia800701.us.archive.org/23/items/forestsoundeffects/Forest%20Sound%20Effects.mp3",
+        "Bird Chirping": "https://ia800505.us.archive.org/5/items/BirdSoundsForestInMorning/Bird%20Sounds%20-%20Forest%20in%20Morning.mp3",
+        "Woodland Stream": "https://ia800204.us.archive.org/10/items/ForestStreamAndWaterBirdSoundEffectsForRelaxationAndSleep/Forest,%20Stream%20and%20Water%20Bird%20Sound%20Effects%20For%20Relaxation%20and%20Sleep.mp3"
     },
     "Ocean": {
-        "Ocean Waves": "https://freesound.org/data/previews/328/328298_5629541-lq.mp3",
-        "Calm Sea": "https://freesound.org/data/previews/187/187404_1979597-lq.mp3", 
-        "Beach Ambience": "https://freesound.org/data/previews/178/178655_1648170-lq.mp3"
+        "Ocean Waves": "https://ia800501.us.archive.org/22/items/OceanWavesSoundEffect/Ocean%20Waves%20Sound%20Effect.mp3",
+        "Calm Sea": "https://ia800501.us.archive.org/5/items/SeaShoreWavesSoundEffect/Sea%20Shore%20Waves%20Sound%20Effect.mp3", 
+        "Beach Ambience": "https://ia800502.us.archive.org/6/items/RelaxingBeachSound/Relaxing%20Beach%20Sound.mp3"
     }
 }
 
