@@ -54,13 +54,19 @@ def find_matching_files():
     available_classical = {}
     
     # Check if classical directory exists
-    if not os.path.exists(CLASSICAL_DIR):
-        print(f"Warning: Classical music directory {CLASSICAL_DIR} not found")
+    classical_dir = os.path.abspath(CLASSICAL_DIR)
+    if not os.path.exists(classical_dir):
+        print(f"Warning: Classical music directory {classical_dir} not found")
         return available_classical
+    
+    print(f"Scanning for classical music in: {classical_dir}")
+    files_found = os.listdir(classical_dir)
+    print(f"Found {len(files_found)} files in directory")
     
     # Go through each category and find files that match or contain the titles
     for category, titles in CLASSICAL_CATEGORIES.items():
         available_classical[category] = {}
+        print(f"Processing category: {category}")
         
         for title in titles:
             # Get year and composer from the filename
@@ -69,15 +75,19 @@ def find_matching_files():
                 year = parts[0]
                 composer_title = parts[1]
                 
+                print(f"Looking for matches for: {composer_title} (year: {year})")
+                
                 # Look for files matching this pattern
                 matches = []
-                for file in os.listdir(CLASSICAL_DIR):
+                for file in os.listdir(classical_dir):
                     if file.endswith('.mp3') and (
                         file == title or 
                         composer_title in file or 
-                        all(word in file.lower() for word in composer_title.lower().split(' - ')[0:1])
+                        any(composer.lower() in file.lower() for composer in composer_title.lower().split(' - ', 1))
                     ):
                         matches.append(file)
+                
+                print(f"Matches found: {matches}")
                 
                 if matches:
                     # Use the best match (exact match preferred)
@@ -87,23 +97,38 @@ def find_matching_files():
                     
                     # Extract just the composer and title for display
                     display_name = composer_title
-                    file_path = os.path.join(CLASSICAL_DIR, best_match)
-                    available_classical[category][display_name] = file_path
+                    file_path = os.path.join(classical_dir, best_match)
+                    if os.path.exists(file_path):
+                        available_classical[category][display_name] = file_path
+                        print(f"Added: {display_name} -> {file_path}")
+                    else:
+                        print(f"Warning: File does not exist: {file_path}")
     
     # If any category is empty, fill with some default files
     for category in CLASSICAL_CATEGORIES.keys():
         if not available_classical.get(category, {}):
             available_classical[category] = {}
-            # Just take the first 5 mp3 files we can find
-            mp3_files = glob.glob(os.path.join(CLASSICAL_DIR, "*.mp3"))
+            print(f"No matches found for category: {category}, adding defaults")
+            # Just take some mp3 files we can find
+            mp3_files = [os.path.join(classical_dir, f) for f in os.listdir(classical_dir) 
+                        if f.endswith('.mp3') and os.path.isfile(os.path.join(classical_dir, f))]
+            
             for i, file in enumerate(mp3_files[:5]):
-                filename = os.path.basename(file)
-                # Try to extract composer/title
-                if " - " in filename:
-                    display_name = filename.split(" ", 1)[1]
-                else:
-                    display_name = filename
-                available_classical[category][display_name] = file
+                if os.path.exists(file):
+                    filename = os.path.basename(file)
+                    # Try to extract composer/title
+                    if " - " in filename:
+                        display_name = filename.split(" ", 1)[1]
+                    else:
+                        display_name = filename
+                    available_classical[category][display_name] = file
+                    print(f"Added default: {display_name} -> {file}")
+    
+    # Print summary of what was found
+    total_tracks = sum(len(cat) for cat in available_classical.values())
+    print(f"Total classical tracks found: {total_tracks}")
+    for category, tracks in available_classical.items():
+        print(f"Category {category}: {len(tracks)} tracks")
     
     return available_classical
 
@@ -204,6 +229,11 @@ def mix_audio(ambient_path, music_path, output_path, ambient_volume=0.7, music_v
 def add_audio_to_video(video_path, audio_path, output_path, loop_audio=True):
     """Adds audio to a video file, optionally looping the audio to match video length"""
     try:
+        # Convert paths to absolute paths
+        video_path = os.path.abspath(video_path)
+        audio_path = os.path.abspath(audio_path)
+        output_path = os.path.abspath(output_path)
+        
         # Get video duration
         video_info = ffmpeg.probe(video_path)
         video_duration = float(video_info['format']['duration'])
@@ -214,41 +244,38 @@ def add_audio_to_video(video_path, audio_path, output_path, loop_audio=True):
         
         if loop_audio and audio_duration < video_duration:
             # Create a temporary file for the looped audio
-            temp_audio = "temp_looped_audio.mp3"
+            temp_audio = os.path.abspath("temp_looped_audio.mp3")
             
-            # Simple approach: Use ffmpeg's concat demuxer with a concat file
-            concat_file = "concat_list.txt"
-            loop_count = int(np.ceil(video_duration / audio_duration))
+            # Create a simple version that uses shell commands for looping
+            # This assumes ffmpeg is installed and in the path
+            print(f"Processing video: {video_path}")
+            print(f"Processing audio: {audio_path}")
             
-            # Create the concat file
-            with open(concat_file, "w") as f:
-                for i in range(loop_count):
-                    f.write(f"file '{audio_path}'\n")
-            
-            # Concatenate audio files using concat demuxer
-            os.system(f'ffmpeg -f concat -safe 0 -i {concat_file} -c copy {temp_audio} -y')
-            
-            # Now add the looped audio to the video using direct command
-            os.system(f'ffmpeg -i {video_path} -i {temp_audio} -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -shortest {output_path} -y')
-            
-            # Clean up temp files
-            if os.path.exists(temp_audio):
-                os.remove(temp_audio)
-            if os.path.exists(concat_file):
-                os.remove(concat_file)
+            # Create a direct ffmpeg command that doesn't rely on concat files
+            # Use the -stream_loop option which is more reliable
+            cmd = f'ffmpeg -i "{video_path}" -stream_loop -1 -i "{audio_path}" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -shortest "{output_path}" -y'
+            print(f"Running command: {cmd}")
+            result = os.system(cmd)
+            print(f"Command result: {result}")
         else:
-            # Add audio directly using os.system for reliable operation
-            os.system(f'ffmpeg -i {video_path} -i {audio_path} -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -shortest {output_path} -y')
+            # Add audio directly (without looping)
+            cmd = f'ffmpeg -i "{video_path}" -i "{audio_path}" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -shortest "{output_path}" -y'
+            print(f"Running command: {cmd}")
+            result = os.system(cmd)
+            print(f"Command result: {result}")
         
         # Check if the output file was created successfully
         if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+            print(f"Successfully created output file: {output_path}")
             return output_path
         else:
             st.error(f"Error: Output file {output_path} was not created properly")
             return None
             
     except Exception as e:
+        import traceback
         st.error(f"Error adding audio to video: {e}")
+        st.code(traceback.format_exc())
         return None
 
 # Streamlit interface for testing
