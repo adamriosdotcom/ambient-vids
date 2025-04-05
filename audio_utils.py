@@ -5,109 +5,165 @@ import numpy as np
 import pandas as pd
 import ffmpeg
 import requests
+import glob
 from io import BytesIO
 from pathlib import Path
 
 # Constants for audio resources
 AUDIO_DIR = "audio_resources"
+CLASSICAL_DIR = "100ClassicalMusicMasterpieces"
 
-# Define dictionary of free audio resources
+# Define categories for classical music based on mood/style
+CLASSICAL_CATEGORIES = {
+    "Calm": [
+        "1825 Schubert - Ave Maria.mp3",
+        "1875 Faure - Pavane.mp3",
+        "1890 Debussy - Clair de Lune.mp3",
+        "1888 Satie - Gymnopédie No.1.mp3",
+        "1877 Saint-Saens - The Swan.mp3",
+        "1894 Massenet - Meditation from Thais.mp3"
+    ],
+    "Melancholic": [
+        "1827 Beethoven - Moonlight Sonata.mp3",
+        "1838 Chopin - Nocturne Op. 9 No. 2.mp3",
+        "1849 Chopin - Funeral March, Sonata No. 2.mp3",
+        "1903 Sibelius - Valse Triste.mp3",
+        "1899 Elgar - Nimrod from Enigma Variations.mp3",
+        "1822 Schubert - Symphony No.8 in B minor, 'Unfinished'.mp3"
+    ],
+    "Uplifting": [
+        "1723 Vivaldi - The Four Seasons - Spring.mp3",
+        "1785 Mozart - Eine Kleine Nachtmusik.mp3",
+        "1741 Handel - Water Music Suite No.2 in D.mp3",
+        "1823 Beethoven - Symphony No. 9, 'Choral' - Ode to Joy.mp3",
+        "1874 Johann Strauss II - The Blue Danube Waltz.mp3",
+        "1778 Rondo Alla Turca, from Piano Sonata in A.mp3"
+    ],
+    "Dramatic": [
+        "1870 Wagner- Ride of the Valkyries; from 'The Valkyrie'.mp3",
+        "1916 Holst - Mars, from 'The Planets'.mp3",
+        "1874 Mussorgsky - Night on a Bare Mountain.mp3",
+        "1871 Grieg - In the Hall of the Mountain King.mp3",
+        "1882 Tchaikovsky - 1812 Overture.mp3",
+        "1798 Beethoven - Symphony No.5 in C minor - 1st movement.mp3"
+    ]
+}
+
+# Find actual matching files in the classical directory
+def find_matching_files():
+    available_classical = {}
+    
+    # Check if classical directory exists
+    if not os.path.exists(CLASSICAL_DIR):
+        print(f"Warning: Classical music directory {CLASSICAL_DIR} not found")
+        return available_classical
+    
+    # Go through each category and find files that match or contain the titles
+    for category, titles in CLASSICAL_CATEGORIES.items():
+        available_classical[category] = {}
+        
+        for title in titles:
+            # Get year and composer from the filename
+            parts = title.split(' ', 1)
+            if len(parts) > 1:
+                year = parts[0]
+                composer_title = parts[1]
+                
+                # Look for files matching this pattern
+                matches = []
+                for file in os.listdir(CLASSICAL_DIR):
+                    if file.endswith('.mp3') and (
+                        file == title or 
+                        composer_title in file or 
+                        all(word in file.lower() for word in composer_title.lower().split(' - ')[0:1])
+                    ):
+                        matches.append(file)
+                
+                if matches:
+                    # Use the best match (exact match preferred)
+                    best_match = matches[0]
+                    if title in matches:
+                        best_match = title
+                    
+                    # Extract just the composer and title for display
+                    display_name = composer_title
+                    file_path = os.path.join(CLASSICAL_DIR, best_match)
+                    available_classical[category][display_name] = file_path
+    
+    # If any category is empty, fill with some default files
+    for category in CLASSICAL_CATEGORIES.keys():
+        if not available_classical.get(category, {}):
+            available_classical[category] = {}
+            # Just take the first 5 mp3 files we can find
+            mp3_files = glob.glob(os.path.join(CLASSICAL_DIR, "*.mp3"))
+            for i, file in enumerate(mp3_files[:5]):
+                filename = os.path.basename(file)
+                # Try to extract composer/title
+                if " - " in filename:
+                    display_name = filename.split(" ", 1)[1]
+                else:
+                    display_name = filename
+                available_classical[category][display_name] = file
+    
+    return available_classical
+
+# Placeholder ambient sounds - these will need to be replaced with actual files
 AMBIENT_SOUNDS = {
     "Fireplace": {
-        "Crackling Fire": "https://assets.mixkit.co/sfx/preview/mixkit-campfire-crackles-1330.mp3",
-        "Fireplace with Wind": "https://assets.mixkit.co/sfx/preview/mixkit-blizzard-cold-winds-1153.mp3", 
-        "Cozy Evening Fire": "https://assets.mixkit.co/sfx/preview/mixkit-small-fire-in-the-fireplace-loop-1333.mp3"
+        "Crackling Fire": None,
+        "Fireplace with Wind": None,
+        "Cozy Evening Fire": None
     },
     "Rain": {
-        "Gentle Rain": "https://assets.mixkit.co/sfx/preview/mixkit-light-rain-loop-2393.mp3",
-        "Thunderstorm": "https://assets.mixkit.co/sfx/preview/mixkit-heavy-rain-with-distant-thunder-ambience-1250.mp3",
-        "Rain on Window": "https://assets.mixkit.co/sfx/preview/mixkit-rain-on-glass-window-loop-1248.mp3"
+        "Gentle Rain": None,
+        "Thunderstorm": None,
+        "Rain on Window": None
     },
     "Forest": {
-        "Forest Ambience": "https://assets.mixkit.co/sfx/preview/mixkit-forest-birds-loop-1240.mp3",
-        "Bird Chirping": "https://assets.mixkit.co/sfx/preview/mixkit-morning-birds-chirping-in-the-forest-2432.mp3",
-        "Woodland Stream": "https://assets.mixkit.co/sfx/preview/mixkit-stream-running-over-rocks-loop-2430.mp3"
+        "Forest Ambience": None,
+        "Bird Chirping": None,
+        "Woodland Stream": None
     },
     "Ocean": {
-        "Ocean Waves": "https://assets.mixkit.co/sfx/preview/mixkit-sea-waves-loop-1196.mp3",
-        "Calm Sea": "https://assets.mixkit.co/sfx/preview/mixkit-calm-ocean-waves-ambience-1181.mp3", 
-        "Beach Ambience": "https://assets.mixkit.co/sfx/preview/mixkit-beach-shore-small-waves-loop-1185.mp3"
+        "Ocean Waves": None,
+        "Calm Sea": None,
+        "Beach Ambience": None
     }
 }
 
-CLASSICAL_MUSIC = {
-    "Calm": {
-        "Gymnopédie No.1 (Erik Satie)": "https://www.orangefreesounds.com/wp-content/uploads/2021/04/Erik-Satie-Gymnop%C3%A9die-No.-1-piano-solo.mp3",
-        "Clair de Lune (Debussy)": "https://www.orangefreesounds.com/wp-content/uploads/2021/04/Claude-Debussy-Clair-de-lune-piano-solo.mp3",
-        "Canon in D (Pachelbel)": "https://www.orangefreesounds.com/wp-content/uploads/2019/05/Canon-in-D-classical-music.mp3"
-    },
-    "Melancholic": {
-        "Moonlight Sonata (Beethoven)": "https://www.orangefreesounds.com/wp-content/uploads/2018/07/Piano-sonata-no-14-in-C-moonlight-sonata-by-Beethoven-classical-piano-music.mp3",
-        "Prelude in E-Minor (Chopin)": "https://www.orangefreesounds.com/wp-content/uploads/2018/12/Frederic-Chopin-prelude-in-E-minor-op.28-no.4.mp3",
-        "Ave Maria (Schubert)": "https://www.orangefreesounds.com/wp-content/uploads/2018/07/Ave-maria-Schubert-classical-music.mp3"
-    },
-    "Uplifting": {
-        "Spring (Vivaldi)": "https://www.orangefreesounds.com/wp-content/uploads/2018/07/Antonio-Vivaldi-%E2%80%93-Spring-La-primavera-classical-music.mp3",
-        "Ode to Joy (Beethoven)": "https://www.orangefreesounds.com/wp-content/uploads/2020/02/Ode-to-joy-from-the-9th-Symphony-by-Beethoven.mp3",
-        "Water Music (Handel)": "https://www.orangefreesounds.com/wp-content/uploads/2020/02/Georg-Friedrich-H%C3%A4ndel-Water-Music-Air.mp3"
-    }
-}
+# Initialize the available classical music files
+CLASSICAL_MUSIC = find_matching_files()
 
 def ensure_audio_dir():
     """Creates the audio resources directory if it doesn't exist"""
     os.makedirs(AUDIO_DIR, exist_ok=True)
 
-def download_audio(url, category, name):
-    """Downloads audio file from URL and saves to audio directory"""
-    try:
-        ensure_audio_dir()
-        # Create a clean filename
-        clean_name = name.replace(" ", "_").lower()
-        # Create subdirectory for category
-        category_dir = os.path.join(AUDIO_DIR, category.lower())
-        os.makedirs(category_dir, exist_ok=True)
-        
-        # Define the file path
-        file_path = os.path.join(category_dir, f"{clean_name}.mp3")
-        
-        # Check if file already exists
-        if os.path.exists(file_path):
-            return file_path
-        
-        # Print debug information
-        print(f"Downloading audio from: {url}")
-        
-        # Download the file
-        response = requests.get(url)
-        if response.status_code == 200:
-            with open(file_path, 'wb') as f:
-                f.write(response.content)
-            print(f"Audio downloaded successfully to: {file_path}")
-            return file_path
-        else:
-            error_msg = f"Failed to download audio: {response.status_code}"
-            print(error_msg)
-            st.error(error_msg)
-            return None
-    except Exception as e:
-        error_msg = f"Error downloading audio: {str(e)}"
-        print(error_msg)
-        st.error(error_msg)
-        return None
-
 def get_audio_file(audio_type, category, name):
-    """Gets the path to an audio file, downloading it if necessary"""
+    """Gets the path to an audio file"""
     if audio_type == "Ambient Sounds":
-        url = AMBIENT_SOUNDS[category][name]
-        return download_audio(url, category, name)
+        # For ambient sounds, we just return a placeholder for now
+        # In a real implementation, you would have local ambient sound files
+        st.warning("Ambient sounds are not yet available.")
+        return None
     elif audio_type == "Classical Music":
-        url = CLASSICAL_MUSIC[category][name]
-        return download_audio(url, category, name)
+        # Get the path to the selected classical music file
+        if category in CLASSICAL_MUSIC and name in CLASSICAL_MUSIC[category]:
+            return CLASSICAL_MUSIC[category][name]
+        st.warning(f"Selected music {name} not found.")
+        return None
     return None
 
 def mix_audio(ambient_path, music_path, output_path, ambient_volume=0.7, music_volume=0.4):
     """Mixes ambient sound with music at the specified volumes"""
     try:
+        if not ambient_path or not os.path.exists(ambient_path):
+            st.error("Ambient sound file not found.")
+            return None
+            
+        if not music_path or not os.path.exists(music_path):
+            st.error("Music file not found.")
+            return None
+            
         (
             ffmpeg
             .input(ambient_path)
@@ -200,41 +256,12 @@ def add_audio_to_video(video_path, audio_path, output_path, loop_audio=True):
         st.error(f"Error adding audio to video: {e}")
         return None
 
-# Download initial sample files on module load
-def download_sample_files():
-    """Pre-downloads sample audio files for testing"""
-    sample_files = {}
-    
-    # Download one sample from each category
-    try:
-        # Ambient sample
-        ambient_category = list(AMBIENT_SOUNDS.keys())[0]
-        ambient_name = list(AMBIENT_SOUNDS[ambient_category].keys())[0]
-        ambient_url = AMBIENT_SOUNDS[ambient_category][ambient_name]
-        ambient_file = download_audio(ambient_url, ambient_category, ambient_name)
-        if ambient_file:
-            sample_files['ambient'] = ambient_file
-        
-        # Classical sample
-        music_category = list(CLASSICAL_MUSIC.keys())[0]
-        music_name = list(CLASSICAL_MUSIC[music_category].keys())[0]
-        music_url = CLASSICAL_MUSIC[music_category][music_name]
-        music_file = download_audio(music_url, music_category, music_name)
-        if music_file:
-            sample_files['classical'] = music_file
-            
-        print(f"Sample files downloaded: {sample_files}")
-        return sample_files
-    except Exception as e:
-        print(f"Error downloading sample files: {e}")
-        return {}
-
 # Streamlit interface for testing
 def audio_ui_test():
     st.title("Ambience Audio Selector")
     
     # Display debug information
-    st.write("This is a testing interface for the audio feature. If you encounter errors, please check the logs.")
+    st.write("This is a testing interface for the audio feature.")
     
     # Check if ffmpeg is available
     try:
@@ -247,32 +274,24 @@ def audio_ui_test():
     except Exception as e:
         st.warning(f"Could not check for FFmpeg: {e}")
     
-    # Pre-download sample files
-    if 'sample_files' not in st.session_state:
-        st.session_state.sample_files = download_sample_files()
+    # Check if we have classical music files
+    if not any(CLASSICAL_MUSIC.values()):
+        st.error(f"No classical music files found in {CLASSICAL_DIR}")
+    else:
+        st.success(f"Found {sum(len(cat) for cat in CLASSICAL_MUSIC.values())} classical music files")
         
-    if st.session_state.sample_files:
-        st.success("Sample audio files downloaded successfully. You can play them below.")
-        
-        # Display sample ambient sound
-        if 'ambient' in st.session_state.sample_files:
-            st.subheader("Sample Ambient Sound")
-            st.audio(st.session_state.sample_files['ambient'])
-            
-        # Display sample classical music
-        if 'classical' in st.session_state.sample_files:
-            st.subheader("Sample Classical Music")
-            st.audio(st.session_state.sample_files['classical'])
+        # Display some sample info
+        for category, tracks in CLASSICAL_MUSIC.items():
+            if tracks:
+                st.subheader(f"{category} Music")
+                for title, path in list(tracks.items())[:3]:  # Show the first 3 tracks in each category
+                    st.write(f"- {title}")
     
     # Audio type selection
     audio_type = st.selectbox("Audio Type", 
-                             ["Ambient Sounds", "Classical Music", "Combine Both", "Upload Your Own"])
+                             ["Classical Music", "Ambient Sounds (Coming Soon)", "Upload Your Own"])
     
     # Initialize session state variables for audio
-    if 'ambient_category' not in st.session_state:
-        st.session_state.ambient_category = None
-    if 'ambient_sound' not in st.session_state:
-        st.session_state.ambient_sound = None
     if 'music_category' not in st.session_state:
         st.session_state.music_category = None
     if 'music_track' not in st.session_state:
@@ -280,82 +299,45 @@ def audio_ui_test():
     if 'audio_files' not in st.session_state:
         st.session_state.audio_files = []
     
-    # Ambient sound options
-    if audio_type in ["Ambient Sounds", "Combine Both"]:
-        ambient_category = st.selectbox("Ambient Sound Category", 
-                                      list(AMBIENT_SOUNDS.keys()))
-        st.session_state.ambient_category = ambient_category
-        
-        # Display ambient sound options based on category
-        ambient_options = AMBIENT_SOUNDS[ambient_category]
-        selected_ambient = st.selectbox("Choose Ambient Sound", 
-                                       list(ambient_options.keys()))
-        st.session_state.ambient_sound = selected_ambient
-        
-        # Download the audio file
-        ambient_url = ambient_options[selected_ambient]
-        try:
-            audio_file = get_audio_file("Ambient Sounds", ambient_category, selected_ambient)
-            if audio_file and os.path.exists(audio_file):
-                st.success(f"Audio file downloaded to: {audio_file}")
-                st.audio(audio_file)
-            else:
-                st.warning("Could not download audio file. Trying direct URL...")
-                st.audio(ambient_url)
-        except Exception as e:
-            st.error(f"Error playing audio: {e}")
-            
     # Classical music options
-    if audio_type in ["Classical Music", "Combine Both"]:
+    if audio_type == "Classical Music":
         music_category = st.selectbox("Music Mood", 
                                     list(CLASSICAL_MUSIC.keys()))
         st.session_state.music_category = music_category
         
         # Display music options based on mood
-        music_options = CLASSICAL_MUSIC[music_category]
-        selected_music = st.selectbox("Choose Classical Track", 
-                                     list(music_options.keys()))
-        st.session_state.music_track = selected_music
-        
-        # Download the audio file
-        music_url = music_options[selected_music]
-        try:
-            audio_file = get_audio_file("Classical Music", music_category, selected_music)
-            if audio_file and os.path.exists(audio_file):
-                st.success(f"Audio file downloaded to: {audio_file}")
-                st.audio(audio_file)
+        if CLASSICAL_MUSIC[music_category]:
+            music_options = CLASSICAL_MUSIC[music_category]
+            selected_music = st.selectbox("Choose Classical Track", 
+                                      list(music_options.keys()))
+            st.session_state.music_track = selected_music
+            
+            # Display selected track for playback
+            music_file = music_options[selected_music]
+            if music_file and os.path.exists(music_file):
+                st.success(f"Playing: {selected_music}")
+                st.audio(music_file)
             else:
-                st.warning("Could not download audio file. Trying direct URL...")
-                st.audio(music_url)
-        except Exception as e:
-            st.error(f"Error playing audio: {e}")
+                st.error(f"File not found: {music_file}")
+        else:
+            st.warning(f"No tracks available for {music_category}")
     
-    # Volume mixing if combining both
-    if audio_type == "Combine Both":
-        ambient_volume = st.slider("Ambient Sound Volume", 0.0, 1.0, 0.7, 0.1)
-        music_volume = st.slider("Music Volume", 0.0, 1.0, 0.4, 0.1)
-        
-        if st.button("Mix Audio for Preview"):
-            with st.spinner("Mixing audio..."):
-                # Download audio files
-                ambient_file = get_audio_file("Ambient Sounds", ambient_category, selected_ambient)
-                music_file = get_audio_file("Classical Music", music_category, selected_music)
-                
-                if ambient_file and music_file:
-                    # Mix the audio
-                    mixed_file = os.path.join(AUDIO_DIR, "mixed_preview.mp3")
-                    mix_audio(ambient_file, music_file, mixed_file, ambient_volume, music_volume)
-                    
-                    # Display mixed audio
-                    st.success("Audio mixed successfully!")
-                    st.audio(mixed_file)
+    # Ambient sounds options (coming soon)
+    elif audio_type == "Ambient Sounds (Coming Soon)":
+        st.info("Ambient sounds are coming soon! For now, you can use classical music or upload your own sounds.")
     
     # Upload option
-    if audio_type == "Upload Your Own":
+    elif audio_type == "Upload Your Own":
         custom_audio = st.file_uploader("Upload Audio File (MP3, WAV)", type=["mp3", "wav"])
         if custom_audio is not None:
-            st.audio(custom_audio)
-            
+            # Save uploaded file to disk
+            temp_path = f"uploaded_{custom_audio.name}"
+            with open(temp_path, "wb") as f:
+                f.write(custom_audio.read())
+            st.session_state.custom_audio_path = temp_path
+            st.success("Audio uploaded successfully!")
+            st.audio(temp_path)
+    
     # Video testing section
     st.subheader("Test with a Video")
     
@@ -375,29 +357,24 @@ def audio_ui_test():
             with st.spinner("Processing video with audio..."):
                 try:
                     # Get the selected audio based on the type
-                    if audio_type == "Ambient Sounds":
-                        audio_file = get_audio_file("Ambient Sounds", st.session_state.ambient_category, st.session_state.ambient_sound)
-                    elif audio_type == "Classical Music":
+                    if audio_type == "Classical Music":
                         audio_file = get_audio_file("Classical Music", st.session_state.music_category, st.session_state.music_track)
-                    elif audio_type == "Combine Both":
-                        # Mix the audio first
-                        ambient_file = get_audio_file("Ambient Sounds", st.session_state.ambient_category, st.session_state.ambient_sound)
-                        music_file = get_audio_file("Classical Music", st.session_state.music_category, st.session_state.music_track)
-                        audio_file = os.path.join(AUDIO_DIR, "mixed_audio.mp3")
-                        mix_audio(ambient_file, music_file, audio_file, ambient_volume, music_volume)
                     elif audio_type == "Upload Your Own":
-                        # Save the uploaded audio to a temporary file
-                        audio_file = "temp_uploaded_audio.mp3"
-                        with open(audio_file, "wb") as f:
-                            f.write(custom_audio.read())
+                        audio_file = st.session_state.custom_audio_path
+                    else:
+                        st.warning("Please select Classical Music or Upload Your Own audio first.")
+                        audio_file = None
                     
-                    # Add the audio to the video
-                    output_path = "test_video_with_audio.mp4"
-                    add_audio_to_video(temp_video, audio_file, output_path, loop_audio=True)
-                    
-                    # Display the result
-                    st.success("Audio added to video successfully!")
-                    st.video(output_path)
+                    if audio_file and os.path.exists(audio_file):
+                        # Add the audio to the video
+                        output_path = "test_video_with_audio.mp4"
+                        add_audio_to_video(temp_video, audio_file, output_path, loop_audio=True)
+                        
+                        # Display the result
+                        st.success("Audio added to video successfully!")
+                        st.video(output_path)
+                    else:
+                        st.error("Audio file not available or could not be loaded.")
                 except Exception as e:
                     st.error(f"Error processing video: {e}")
 
