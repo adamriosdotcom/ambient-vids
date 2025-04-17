@@ -20,6 +20,7 @@ import glob
 import requests
 import shutil
 import json
+import re # Add re import
 
 # Load environment variables
 load_dotenv()
@@ -61,6 +62,37 @@ def get_project_path(run_id, asset_type, filename):
         return os.path.abspath(f"{project_dir}/session_state.json") # State file path
     else:
         return os.path.abspath(f"{project_dir}/{filename}") # Use absolute paths
+
+# Function to generate a project name from the prompt
+def generate_project_name(prompt):
+    """Generates a safe directory name from a prompt."""
+    if not prompt:
+        prompt = "untitled"
+    
+    # Keep alphanumeric and spaces, convert to lowercase
+    sanitized = re.sub(r'[^a-z0-9\s]+', '', prompt.lower())
+    
+    # Replace whitespace with underscores
+    sanitized = re.sub(r'\s+', '_', sanitized).strip('_')
+    
+    # Truncate
+    max_len = 40
+    if len(sanitized) > max_len:
+        # Try to truncate at the last underscore before max_len
+        last_underscore = sanitized.rfind('_', 0, max_len)
+        if last_underscore > 0:
+            sanitized = sanitized[:last_underscore]
+        else:
+            sanitized = sanitized[:max_len]
+            
+    # Handle empty string after sanitization
+    if not sanitized:
+        sanitized = "project"
+        
+    # Append timestamp for uniqueness
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    return f"{sanitized}_{timestamp}"
 
 # Persistence functions
 SAVABLE_STATE_KEYS = [
@@ -270,7 +302,8 @@ if 'run_id' not in st.session_state:
     st.subheader("Start New Project")
     if st.button("Start New Ambience Video"):
         # Initialize new session
-        st.session_state.run_id = str(uuid.uuid4())[:8]
+        # Generate NEW ID using default name + timestamp
+        st.session_state.run_id = generate_project_name("new_project") 
         create_project_folder(st.session_state.run_id)
         st.session_state.step = 1
         st.session_state.history = {}
@@ -328,9 +361,9 @@ elif 'run_id' in st.session_state:
     if st.session_state.step == 1:
         st.header("Step 1: Enter Your Scene Description & Settings")
         
-        prompt = st.text_area("Description (e.g., 'a cozy library at night with a cat curled up on a chair')", 
-                             value=st.session_state.prompt or "a cozy cabin in a snowy forest with a crackling fireplace with soft embers",
-                             height=100)
+        prompt_input = st.text_area("Description (e.g., 'a cozy library at night with a cat curled up on a chair')", 
+                                  value=st.session_state.prompt or "a cozy cabin in a snowy forest with a crackling fireplace with soft embers",
+                                  height=100)
 
         # Add clip duration selection
         st.session_state.clip_duration = st.radio(
@@ -342,10 +375,30 @@ elif 'run_id' in st.session_state:
         st.info(f"Each generated video segment will be {st.session_state.clip_duration} seconds long.")
         
         if st.button("Generate Images"):
-            if prompt:
-                st.session_state.prompt = prompt
-                # Clip duration is already set in session state via the radio button
+            if prompt_input:
+                st.session_state.prompt = prompt_input # Set the actual prompt here
                 
+                # Check if we need to rename the project based on the first real prompt
+                if st.session_state.run_id.startswith("new_project_"):
+                    old_run_id = st.session_state.run_id
+                    new_run_id = generate_project_name(st.session_state.prompt)
+                    st.session_state.run_id = new_run_id
+                    # Rename the folder
+                    old_project_dir = f"projects/{old_run_id}"
+                    new_project_dir = f"projects/{new_run_id}"
+                    if os.path.exists(old_project_dir):
+                        try:
+                            os.rename(old_project_dir, new_project_dir)
+                            print(f"Renamed project folder from {old_run_id} to {new_run_id}")
+                            # Update the title immediately
+                            st.title(f"Ambience Video Creator (Project: {st.session_state.run_id})")
+                        except OSError as e:
+                            st.error(f"Error renaming project folder: {e}")
+                            st.session_state.run_id = old_run_id # Revert if rename fails
+                    else:
+                         # If old folder doesn't exist, just create the new one
+                         create_project_folder(st.session_state.run_id)
+
                 # Create placeholders for image generation progress
                 st.write("Generating optimized prompts and images...")
                 progress_bar = st.progress(0)
@@ -363,7 +416,7 @@ elif 'run_id' in st.session_state:
                         
                         # Generate a unique optimized prompt each time
                         with st.spinner(f"Creating optimized prompt {j+1}..."):
-                            optimized_prompt = generate_optimized_prompt(prompt)
+                            optimized_prompt = generate_optimized_prompt(prompt_input)
                             
                             if optimized_prompt:
                                 all_prompts.append(optimized_prompt)
@@ -1152,3 +1205,39 @@ elif 'run_id' in st.session_state:
                             st.experimental_rerun()
                     except Exception as e:
                         st.error(f"Error processing video {video_path}: {e}")
+
+# Reset session state function (Should clear IN-MEMORY state for starting NEW)
+def reset_session_state():
+    # Store run_id before clearing
+    current_run_id = st.session_state.get('run_id', None)
+    
+    # Clear all keys except maybe preserved ones if needed later
+    keys_to_clear = list(st.session_state.keys())
+    for key in keys_to_clear:
+        del st.session_state[key]
+    
+    # Re-initialize essential keys for a new session
+    # Generate NEW ID using default name + timestamp (will be renamed in step 1)
+    st.session_state.run_id = generate_project_name("new_project") 
+    create_project_folder(st.session_state.run_id)
+    st.session_state.step = 1
+    st.session_state.history = {}
+    st.session_state.clip_duration = 10 # Default
+    # Initialize other savable keys to defaults/empty
+    for key in SAVABLE_STATE_KEYS:
+        if key not in ['run_id', 'step', 'history', 'clip_duration']:
+            if key in ['optimized_prompts', 'generated_images', 'generated_videos', 'clip_paths']:
+                st.session_state[key] = []
+            elif key == 'video_attempts':
+                st.session_state[key] = 0
+            elif key == 'loop_count':
+                st.session_state[key] = 1
+            elif key == 'target_duration':
+                st.session_state[key] = 30
+            elif key == 'audio_added':
+                st.session_state[key] = False
+            else:
+                st.session_state[key] = None
+                
+    save_session_to_file(st.session_state.run_id) # Save initial state of NEW project
+    # Don't rerun here, let the main flow handle it after reset
