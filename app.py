@@ -970,9 +970,9 @@ elif 'run_id' in st.session_state:
                                 # Generate 2 video options with selected duration
                                 with st.spinner(f"Generating initial {st.session_state.clip_duration}s video options..."):
                                     st.session_state.generated_videos = []
-                                    # Updated video prompts for fixed camera + focus + slow motion
-                                    user_video_prompt = "Locked camera shot, fixed perspective, absolutely no camera movement. Maintain focus on the primary subject and keep a constant distance. camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0. Slow motion movement only."
-                                    negative_prompt_text = "camera movement, pan, tilt, zoom, rotation, camera shake, unsteady camera, focus shift, distance change, fast motion"
+                                    # Updated video prompts v3
+                                    user_video_prompt = "extremely slow motion, fixed frame, subtle animation"
+                                    negative_prompt_text = "movement, panning, forward, motion, camera movement, zoom, tilt, rotation, shake"
                                     
                                     # Generate 2 videos (removed nested try)
                                     for j in range(2):
@@ -982,7 +982,7 @@ elif 'run_id' in st.session_state:
                                         input_dict = {
                                             "prompt": user_video_prompt,
                                             "duration": st.session_state.clip_duration, # Use selected duration
-                                            "cfg_scale": 0.9, # Adjusted CFG scale
+                                            "cfg_scale": 0.9, # Keep CFG scale
                                             "start_image": open(upscaled_path, "rb"),
                                             "aspect_ratio": "16:9",
                                             "negative_prompt": negative_prompt_text
@@ -1020,9 +1020,9 @@ elif 'run_id' in st.session_state:
                         st.session_state.video_attempts += 1
                         attempt = st.session_state.video_attempts
                         st.session_state.generated_videos = []
-                        # Updated video prompts for fixed camera + focus + slow motion
-                        user_video_prompt = "Locked camera shot, fixed perspective, absolutely no camera movement. Maintain focus on the primary subject and keep a constant distance. camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0. Slow motion movement only."
-                        negative_prompt_text = "camera movement, pan, tilt, zoom, rotation, camera shake, unsteady camera, focus shift, distance change, fast motion"
+                        # Updated video prompts v3
+                        user_video_prompt = "extremely slow motion, fixed frame, subtle animation"
+                        negative_prompt_text = "movement, panning, forward, motion, camera movement, zoom, tilt, rotation, shake"
                         
                         # Generate 2 videos
                         for j in range(2):
@@ -1032,7 +1032,7 @@ elif 'run_id' in st.session_state:
                             input_dict = {
                                 "prompt": user_video_prompt,
                                 "duration": st.session_state.clip_duration, # Use selected duration
-                                "cfg_scale": 0.9, # Adjusted CFG scale
+                                "cfg_scale": 0.9, # Keep CFG scale
                                 "start_image": open(st.session_state.upscaled_image_path, "rb"),
                                 "aspect_ratio": "16:9",
                                 "negative_prompt": negative_prompt_text
@@ -1156,9 +1156,9 @@ elif 'run_id' in st.session_state:
                         st.session_state.video_attempts += 1
                         attempt = st.session_state.video_attempts
                         st.session_state.generated_videos = []
-                        # Updated video prompts for fixed camera + focus + slow motion
-                        user_video_prompt = "Locked camera shot, fixed perspective, absolutely no camera movement. Maintain focus on the primary subject and keep a constant distance. camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0. Slow motion movement only."
-                        negative_prompt_text = "camera movement, pan, tilt, zoom, rotation, camera shake, unsteady camera, focus shift, distance change, fast motion"
+                        # Updated video prompts v3
+                        user_video_prompt = "extremely slow motion, fixed frame, subtle animation"
+                        negative_prompt_text = "movement, panning, forward, motion, camera movement, zoom, tilt, rotation, shake"
                         
                         # Generate 2 videos
                         for j in range(2):
@@ -1168,7 +1168,7 @@ elif 'run_id' in st.session_state:
                             input_dict = {
                                 "prompt": user_video_prompt,
                                 "duration": st.session_state.clip_duration, # Use selected duration
-                                "cfg_scale": 0.9, # Adjusted CFG scale
+                                "cfg_scale": 0.9, # Keep CFG scale
                                 "start_image": open(st.session_state.upscaled_image_path, "rb"),
                                 "aspect_ratio": "16:9",
                                 "negative_prompt": negative_prompt_text
@@ -1292,9 +1292,9 @@ elif 'run_id' in st.session_state:
                         st.session_state.video_attempts += 1
                         attempt = st.session_state.video_attempts
                         st.session_state.generated_videos = []
-                        # Updated video prompts for fixed camera + focus + slow motion
-                        user_video_prompt = "Locked camera shot, fixed perspective, absolutely no camera movement. Maintain focus on the primary subject and keep a constant distance. camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0. Slow motion movement only."
-                        negative_prompt_text = "camera movement, pan, tilt, zoom, rotation, camera shake, unsteady camera, focus shift, distance change, fast motion"
+                        # Updated video prompts v3
+                        user_video_prompt = "extremely slow motion, fixed frame, subtle animation"
+                        negative_prompt_text = "movement, panning, forward, motion, camera movement, zoom, tilt, rotation, shake"
                         
                         # Generate 2 videos
                         for j in range(2):
@@ -1304,8 +1304,8 @@ elif 'run_id' in st.session_state:
                             input_dict = {
                                 "prompt": user_video_prompt,
                                 "duration": st.session_state.clip_duration, # Use selected duration
-                                "cfg_scale": 0.9, # Adjusted CFG scale
-                                "start_image": open(st.session_state.upscaled_image_path, "rb"),
+                                "cfg_scale": 0.9, # Keep CFG scale
+                                "start_image": open(st.session_state.current_start_image_path, "rb"),
                                 "aspect_ratio": "16:9",
                                 "negative_prompt": negative_prompt_text
                             }
@@ -1428,9 +1428,9 @@ elif 'run_id' in st.session_state:
                         st.session_state.video_attempts += 1
                         attempt = st.session_state.video_attempts
                         st.session_state.generated_videos = []
-                        # Updated video prompts for fixed camera + focus + slow motion
-                        user_video_prompt = "Locked camera shot, fixed perspective, absolutely no camera movement. Maintain focus on the primary subject and keep a constant distance. camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0. Slow motion movement only."
-                        negative_prompt_text = "camera movement, pan, tilt, zoom, rotation, camera shake, unsteady camera, focus shift, distance change, fast motion"
+                        # Updated video prompts v3
+                        user_video_prompt = "extremely slow motion, fixed frame, subtle animation"
+                        negative_prompt_text = "movement, panning, forward, motion, camera movement, zoom, tilt, rotation, shake"
                         
                         # Generate 2 videos
                         for j in range(2):
@@ -1440,7 +1440,7 @@ elif 'run_id' in st.session_state:
                             input_dict = {
                                 "prompt": user_video_prompt,
                                 "duration": st.session_state.clip_duration, # Use selected duration
-                                "cfg_scale": 0.9, # Adjusted CFG scale
+                                "cfg_scale": 0.9, # Keep CFG scale
                                 "start_image": open(st.session_state.upscaled_image_path, "rb"),
                                 "aspect_ratio": "16:9",
                                 "negative_prompt": negative_prompt_text
