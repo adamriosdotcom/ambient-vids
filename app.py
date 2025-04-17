@@ -574,7 +574,7 @@ def generate_optimized_prompt(prompt):
 def go_to_step(step_number):
     """Navigate to a specific step in the workflow"""
     st.session_state.step = step_number
-    st.experimental_rerun()
+    st.rerun()
 
 def save_step_state(step_number):
     """Save the current state of a step to history"""
@@ -671,7 +671,7 @@ if 'run_id' not in st.session_state:
                      st.session_state[key] = None
                      
         save_session_to_file(st.session_state.run_id) # Save initial state
-        st.experimental_rerun() # Rerun to start the workflow
+        st.rerun() # Rerun to start the workflow
 
 # --- Main Workflow Logic (Only runs if run_id is set) --- #
 elif 'run_id' in st.session_state:
@@ -826,7 +826,7 @@ elif 'run_id' in st.session_state:
                         st.success(f"Generated {len(valid_images)} images from {len(all_prompts)} unique prompts!")
                         # Skip step 2 and go directly to step 3 (image selection)
                         st.session_state.step = 3
-                        st.button("Proceed to Image Selection", on_click=lambda: st.experimental_rerun())
+                        st.button("Proceed to Image Selection", on_click=lambda: st.rerun())
                     else:
                         st.error("No valid images were generated. Please try again.")
                 except Exception as e:
@@ -892,7 +892,7 @@ elif 'run_id' in st.session_state:
                     # Save state after generating images
                     save_step_state(3)
                     save_session_to_file(st.session_state.run_id)
-                    st.experimental_rerun()
+                    st.rerun()
                 except Exception as e:
                     st.error(f"Error regenerating images: {e}")
         
@@ -923,7 +923,7 @@ elif 'run_id' in st.session_state:
             st.error("No valid images found. Please try generating images again.")
             if st.button("Return to Step 1"):
                 st.session_state.step = 1
-                st.experimental_rerun()
+                st.rerun()
         else:
             # Display the valid images side by side
             cols = st.columns(len(valid_images))
@@ -1001,7 +1001,7 @@ elif 'run_id' in st.session_state:
                                     # Reset video attempt counter
                                     st.session_state.video_attempts = 0
                                     st.session_state.step = 4
-                                    st.experimental_rerun()
+                                    st.rerun()
                                 
                             except Exception as e:
                                 st.error(f"Error in image selection/video generation process: {e}")
@@ -1046,7 +1046,7 @@ elif 'run_id' in st.session_state:
                         
                         save_step_state(4)
                         save_session_to_file(st.session_state.run_id)
-                        st.experimental_rerun()
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Error regenerating videos: {e}")
         
@@ -1086,7 +1086,7 @@ elif 'run_id' in st.session_state:
             st.error("No valid videos found. Please try generating videos again.")
             if st.button("Return to Step 3"):
                 st.session_state.step = 3
-                st.experimental_rerun()
+                st.rerun()
         else:
             st.write("Please select one of the videos below:")
             
@@ -1111,38 +1111,60 @@ elif 'run_id' in st.session_state:
                             st.success(f"Selected video {i+1}")
                             
                             # Extract the last frame, sharpen it for the next clip's start image
+                            last_frame_processed_successfully = False
                             with st.spinner("Processing last frame..."):
-                                cap = cv2.VideoCapture(video_path)
-                                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                                cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames - 1)
-                                ret, frame = cap.read()
-                                cap.release()
-                                
-                                if ret:
-                                    # Show the last frame
-                                    st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), caption="Last Frame")
-                                    
-                                    # Sharpen the frame
-                                    st.info("Upscaling last frame...")
-                                    sharpened_last = sharpen_frame(frame)
-                                    last_frame_filename = "last_frame.png"
-                                    last_frame_path = get_project_path(st.session_state.run_id, "image", last_frame_filename)
-                                    cv2.imwrite(last_frame_path, sharpened_last)
-                                    st.session_state.current_start_image_path = last_frame_path
-                                    
-                                    # Show the sharpened frame
-                                    st.image(cv2.cvtColor(sharpened_last, cv2.COLOR_BGR2RGB), caption="Sharpened Last Frame")
-                                    st.success("Last frame processed successfully!")
-                                else:
-                                    st.error("Could not read the last frame.")
+                                try: # Add try block around frame processing
+                                    cap = cv2.VideoCapture(video_path)
+                                    if not cap.isOpened():
+                                        st.error(f"Failed to open video: {video_path}")
+                                        st.stop()
+                                    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                                    if total_frames <= 0:
+                                        st.error(f"Video has no frames: {video_path}")
+                                        cap.release()
+                                        st.stop()
+                                    cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames - 1) 
+                                    ret, frame = cap.read()
+                                    cap.release()
+
+                                    if ret and frame is not None:
+                                        st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), caption="Last Frame")
+                                        st.info("Upscaling last frame...")
+                                        sharpened_last = sharpen_frame(frame)
+                                        
+                                        if sharpened_last is not None:
+                                            last_frame_filename = "last_frame.png"
+                                            last_frame_path = get_project_path(st.session_state.run_id, "image", last_frame_filename)
+                                            # Add check before writing
+                                            if cv2.imwrite(last_frame_path, sharpened_last):
+                                                st.session_state.current_start_image_path = last_frame_path
+                                                st.image(cv2.cvtColor(sharpened_last, cv2.COLOR_BGR2RGB), caption="Sharpened Last Frame")
+                                                st.success("Last frame processed successfully!")
+                                                last_frame_processed_successfully = True
+                                            else:
+                                                st.error(f"Failed to save sharpened frame to {last_frame_path}")
+                                        else:
+                                            st.error("Frame sharpening failed.")
+                                    else:
+                                        st.error("Could not read the last frame.")
+                                except Exception as frame_proc_e:
+                                    st.error(f"Error during last frame processing: {frame_proc_e}")
+                                    import traceback
+                                    st.error(traceback.format_exc())
                             
-                            # For minimal test, go directly to step 5
-                            st.info("Moving to next step...")
-                            st.session_state.step = 5
-                            save_session_to_file(st.session_state.run_id) # Save state before moving
-                            st.experimental_rerun()
-                    except Exception as e:
-                        st.error(f"Error processing video {video_path}: {e}")
+                            # Move to step 5 only if last frame processing was successful
+                            if last_frame_processed_successfully:
+                                st.info("Moving to next step...")
+                                st.session_state.step = 5
+                                save_session_to_file(st.session_state.run_id) # Save state before moving
+                                st.rerun() # Use st.rerun()
+                            else:
+                                st.warning("Cannot proceed to next step due to error in processing the last frame.")
+                                # No rerun, stay on Step 4
+                    except Exception as outer_e:
+                        st.error(f"Error processing video selection {video_path}: {outer_e}")
+                        import traceback
+                        st.error(traceback.format_exc())
 
     # Step 5: Continue or Complete
     elif st.session_state.step == 5:
@@ -1182,7 +1204,8 @@ elif 'run_id' in st.session_state:
                         
                         save_step_state(5)
                         save_session_to_file(st.session_state.run_id)
-                        st.experimental_rerun()
+                        st.session_state.step = 6
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Error regenerating videos: {e}")
         
@@ -1222,7 +1245,7 @@ elif 'run_id' in st.session_state:
             st.error("No valid videos found. Please try generating videos again.")
             if st.button("Return to Step 4"):
                 st.session_state.step = 4
-                st.experimental_rerun()
+                st.rerun()
         else:
             st.write("Please select one of the videos below:")
             
@@ -1247,38 +1270,60 @@ elif 'run_id' in st.session_state:
                             st.success(f"Selected video {i+1}")
                             
                             # Extract the last frame, sharpen it for the next clip's start image
+                            last_frame_processed_successfully = False
                             with st.spinner("Processing last frame..."):
-                                cap = cv2.VideoCapture(video_path)
-                                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                                cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames - 1)
-                                ret, frame = cap.read()
-                                cap.release()
-                                
-                                if ret:
-                                    # Show the last frame
-                                    st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), caption="Last Frame")
-                                    
-                                    # Sharpen the frame
-                                    st.info("Upscaling last frame...")
-                                    sharpened_last = sharpen_frame(frame)
-                                    last_frame_filename = "last_frame.png"
-                                    last_frame_path = get_project_path(st.session_state.run_id, "image", last_frame_filename)
-                                    cv2.imwrite(last_frame_path, sharpened_last)
-                                    st.session_state.current_start_image_path = last_frame_path
-                                    
-                                    # Show the sharpened frame
-                                    st.image(cv2.cvtColor(sharpened_last, cv2.COLOR_BGR2RGB), caption="Sharpened Last Frame")
-                                    st.success("Last frame processed successfully!")
-                                else:
-                                    st.error("Could not read the last frame.")
+                                try: # Add try block around frame processing
+                                    cap = cv2.VideoCapture(video_path)
+                                    if not cap.isOpened():
+                                        st.error(f"Failed to open video: {video_path}")
+                                        st.stop()
+                                    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                                    if total_frames <= 0:
+                                        st.error(f"Video has no frames: {video_path}")
+                                        cap.release()
+                                        st.stop()
+                                    cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames - 1) 
+                                    ret, frame = cap.read()
+                                    cap.release()
+
+                                    if ret and frame is not None:
+                                        st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), caption="Last Frame")
+                                        st.info("Upscaling last frame...")
+                                        sharpened_last = sharpen_frame(frame)
+                                        
+                                        if sharpened_last is not None:
+                                            last_frame_filename = "last_frame.png"
+                                            last_frame_path = get_project_path(st.session_state.run_id, "image", last_frame_filename)
+                                            # Add check before writing
+                                            if cv2.imwrite(last_frame_path, sharpened_last):
+                                                st.session_state.current_start_image_path = last_frame_path
+                                                st.image(cv2.cvtColor(sharpened_last, cv2.COLOR_BGR2RGB), caption="Sharpened Last Frame")
+                                                st.success("Last frame processed successfully!")
+                                                last_frame_processed_successfully = True
+                                            else:
+                                                st.error(f"Failed to save sharpened frame to {last_frame_path}")
+                                        else:
+                                            st.error("Frame sharpening failed.")
+                                    else:
+                                        st.error("Could not read the last frame.")
+                                except Exception as frame_proc_e:
+                                    st.error(f"Error during last frame processing: {frame_proc_e}")
+                                    import traceback
+                                    st.error(traceback.format_exc())
                             
-                            # For minimal test, go directly to step 5
-                            st.info("Moving to next step...")
-                            st.session_state.step = 5
-                            save_session_to_file(st.session_state.run_id) # Save state before moving
-                            st.experimental_rerun()
-                    except Exception as e:
-                        st.error(f"Error processing video {video_path}: {e}")
+                            # Move to step 5 only if last frame processing was successful
+                            if last_frame_processed_successfully:
+                                st.info("Moving to next step...")
+                                st.session_state.step = 5
+                                save_session_to_file(st.session_state.run_id) # Save state before moving
+                                st.rerun() # Use st.rerun()
+                            else:
+                                st.warning("Cannot proceed to next step due to error in processing the last frame.")
+                                # No rerun, stay on Step 4
+                    except Exception as outer_e:
+                        st.error(f"Error processing video selection {video_path}: {outer_e}")
+                        import traceback
+                        st.error(traceback.format_exc())
 
     # Step 6: Additional Videos
     elif st.session_state.step == 6:
@@ -1318,7 +1363,8 @@ elif 'run_id' in st.session_state:
                         
                         save_step_state(6)
                         save_session_to_file(st.session_state.run_id)
-                        st.experimental_rerun()
+                        st.session_state.step = 7
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Error regenerating videos: {e}")
         
@@ -1358,7 +1404,7 @@ elif 'run_id' in st.session_state:
             st.error("No valid videos found. Please try generating videos again.")
             if st.button("Return to Step 5"):
                 st.session_state.step = 5
-                st.experimental_rerun()
+                st.rerun()
         else:
             st.write("Please select one of the videos below:")
             
@@ -1383,38 +1429,60 @@ elif 'run_id' in st.session_state:
                             st.success(f"Selected video {i+1}")
                             
                             # Extract the last frame, sharpen it for the next clip's start image
+                            last_frame_processed_successfully = False
                             with st.spinner("Processing last frame..."):
-                                cap = cv2.VideoCapture(video_path)
-                                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                                cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames - 1)
-                                ret, frame = cap.read()
-                                cap.release()
-                                
-                                if ret:
-                                    # Show the last frame
-                                    st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), caption="Last Frame")
-                                    
-                                    # Sharpen the frame
-                                    st.info("Upscaling last frame...")
-                                    sharpened_last = sharpen_frame(frame)
-                                    last_frame_filename = "last_frame.png"
-                                    last_frame_path = get_project_path(st.session_state.run_id, "image", last_frame_filename)
-                                    cv2.imwrite(last_frame_path, sharpened_last)
-                                    st.session_state.current_start_image_path = last_frame_path
-                                    
-                                    # Show the sharpened frame
-                                    st.image(cv2.cvtColor(sharpened_last, cv2.COLOR_BGR2RGB), caption="Sharpened Last Frame")
-                                    st.success("Last frame processed successfully!")
-                                else:
-                                    st.error("Could not read the last frame.")
+                                try: # Add try block around frame processing
+                                    cap = cv2.VideoCapture(video_path)
+                                    if not cap.isOpened():
+                                        st.error(f"Failed to open video: {video_path}")
+                                        st.stop()
+                                    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                                    if total_frames <= 0:
+                                        st.error(f"Video has no frames: {video_path}")
+                                        cap.release()
+                                        st.stop()
+                                    cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames - 1) 
+                                    ret, frame = cap.read()
+                                    cap.release()
+
+                                    if ret and frame is not None:
+                                        st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), caption="Last Frame")
+                                        st.info("Upscaling last frame...")
+                                        sharpened_last = sharpen_frame(frame)
+                                        
+                                        if sharpened_last is not None:
+                                            last_frame_filename = "last_frame.png"
+                                            last_frame_path = get_project_path(st.session_state.run_id, "image", last_frame_filename)
+                                            # Add check before writing
+                                            if cv2.imwrite(last_frame_path, sharpened_last):
+                                                st.session_state.current_start_image_path = last_frame_path
+                                                st.image(cv2.cvtColor(sharpened_last, cv2.COLOR_BGR2RGB), caption="Sharpened Last Frame")
+                                                st.success("Last frame processed successfully!")
+                                                last_frame_processed_successfully = True
+                                            else:
+                                                st.error(f"Failed to save sharpened frame to {last_frame_path}")
+                                        else:
+                                            st.error("Frame sharpening failed.")
+                                    else:
+                                        st.error("Could not read the last frame.")
+                                except Exception as frame_proc_e:
+                                    st.error(f"Error during last frame processing: {frame_proc_e}")
+                                    import traceback
+                                    st.error(traceback.format_exc())
                             
-                            # For minimal test, go directly to step 5
-                            st.info("Moving to next step...")
-                            st.session_state.step = 5
-                            save_session_to_file(st.session_state.run_id) # Save state before moving
-                            st.experimental_rerun()
-                    except Exception as e:
-                        st.error(f"Error processing video {video_path}: {e}")
+                            # Move to step 5 only if last frame processing was successful
+                            if last_frame_processed_successfully:
+                                st.info("Moving to next step...")
+                                st.session_state.step = 5
+                                save_session_to_file(st.session_state.run_id) # Save state before moving
+                                st.rerun() # Use st.rerun()
+                            else:
+                                st.warning("Cannot proceed to next step due to error in processing the last frame.")
+                                # No rerun, stay on Step 4
+                    except Exception as outer_e:
+                        st.error(f"Error processing video selection {video_path}: {outer_e}")
+                        import traceback
+                        st.error(traceback.format_exc())
 
     # Step 7: Final Settings
     elif st.session_state.step == 7:
@@ -1454,7 +1522,8 @@ elif 'run_id' in st.session_state:
                         
                         save_step_state(7)
                         save_session_to_file(st.session_state.run_id)
-                        st.experimental_rerun()
+                        st.session_state.step = 8
+                        st.rerun()
                     except Exception as e:
                         st.error(f"Error regenerating videos: {e}")
         
@@ -1494,7 +1563,7 @@ elif 'run_id' in st.session_state:
             st.error("No valid videos found. Please try generating videos again.")
             if st.button("Return to Step 6"):
                 st.session_state.step = 6
-                st.experimental_rerun()
+                st.rerun()
         else:
             st.write("Please select one of the videos below:")
             
@@ -1519,38 +1588,60 @@ elif 'run_id' in st.session_state:
                             st.success(f"Selected video {i+1}")
                             
                             # Extract the last frame, sharpen it for the next clip's start image
+                            last_frame_processed_successfully = False
                             with st.spinner("Processing last frame..."):
-                                cap = cv2.VideoCapture(video_path)
-                                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                                cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames - 1)
-                                ret, frame = cap.read()
-                                cap.release()
-                                
-                                if ret:
-                                    # Show the last frame
-                                    st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), caption="Last Frame")
-                                    
-                                    # Sharpen the frame
-                                    st.info("Upscaling last frame...")
-                                    sharpened_last = sharpen_frame(frame)
-                                    last_frame_filename = "last_frame.png"
-                                    last_frame_path = get_project_path(st.session_state.run_id, "image", last_frame_filename)
-                                    cv2.imwrite(last_frame_path, sharpened_last)
-                                    st.session_state.current_start_image_path = last_frame_path
-                                    
-                                    # Show the sharpened frame
-                                    st.image(cv2.cvtColor(sharpened_last, cv2.COLOR_BGR2RGB), caption="Sharpened Last Frame")
-                                    st.success("Last frame processed successfully!")
-                                else:
-                                    st.error("Could not read the last frame.")
+                                try: # Add try block around frame processing
+                                    cap = cv2.VideoCapture(video_path)
+                                    if not cap.isOpened():
+                                        st.error(f"Failed to open video: {video_path}")
+                                        st.stop()
+                                    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                                    if total_frames <= 0:
+                                        st.error(f"Video has no frames: {video_path}")
+                                        cap.release()
+                                        st.stop()
+                                    cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames - 1) 
+                                    ret, frame = cap.read()
+                                    cap.release()
+
+                                    if ret and frame is not None:
+                                        st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), caption="Last Frame")
+                                        st.info("Upscaling last frame...")
+                                        sharpened_last = sharpen_frame(frame)
+                                        
+                                        if sharpened_last is not None:
+                                            last_frame_filename = "last_frame.png"
+                                            last_frame_path = get_project_path(st.session_state.run_id, "image", last_frame_filename)
+                                            # Add check before writing
+                                            if cv2.imwrite(last_frame_path, sharpened_last):
+                                                st.session_state.current_start_image_path = last_frame_path
+                                                st.image(cv2.cvtColor(sharpened_last, cv2.COLOR_BGR2RGB), caption="Sharpened Last Frame")
+                                                st.success("Last frame processed successfully!")
+                                                last_frame_processed_successfully = True
+                                            else:
+                                                st.error(f"Failed to save sharpened frame to {last_frame_path}")
+                                        else:
+                                            st.error("Frame sharpening failed.")
+                                    else:
+                                        st.error("Could not read the last frame.")
+                                except Exception as frame_proc_e:
+                                    st.error(f"Error during last frame processing: {frame_proc_e}")
+                                    import traceback
+                                    st.error(traceback.format_exc())
                             
-                            # For minimal test, go directly to step 5
-                            st.info("Moving to next step...")
-                            st.session_state.step = 5
-                            save_session_to_file(st.session_state.run_id) # Save state before moving
-                            st.experimental_rerun()
-                    except Exception as e:
-                        st.error(f"Error processing video {video_path}: {e}")
+                            # Move to step 5 only if last frame processing was successful
+                            if last_frame_processed_successfully:
+                                st.info("Moving to next step...")
+                                st.session_state.step = 5
+                                save_session_to_file(st.session_state.run_id) # Save state before moving
+                                st.rerun() # Use st.rerun()
+                            else:
+                                st.warning("Cannot proceed to next step due to error in processing the last frame.")
+                                # No rerun, stay on Step 4
+                    except Exception as outer_e:
+                        st.error(f"Error processing video selection {video_path}: {outer_e}")
+                        import traceback
+                        st.error(traceback.format_exc())
 
 # Reset session state function (Should clear IN-MEMORY state for starting NEW)
 def reset_session_state():
@@ -1586,4 +1677,4 @@ def reset_session_state():
                 st.session_state[key] = None
                 
     save_session_to_file(st.session_state.run_id) # Save initial state of NEW project
-    # Don't rerun here, let the main flow handle it after reset
+    st.rerun()
