@@ -397,9 +397,8 @@ def loop_video(input_path, output_path, num_loops=2):
     return chain_crossfade(loop_paths, output_path, 1.0) # Using 1 second crossfade
 
 def sharpen_frame(frame):
-    """Sharpens/upscales a frame using the Real-ESRGAN model."""
+    """Sharpens/upscales a frame using the recraft-crisp-upscale model."""
     # Use tempfile for safer temporary file handling
-    # Enclose context managers in parentheses for multi-line with statement
     with (tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_input_file,
           tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_output_file):
         temp_input_path = temp_input_file.name
@@ -409,18 +408,23 @@ def sharpen_frame(frame):
         cv2.imwrite(temp_input_path, frame)
         with open(temp_input_path, "rb") as input_file:
             input_data = {"image": input_file}
-            # Updated model reference
-            output = replicate.run("nightmareai/real-esrgan:42fed1c4974146d4d2414e2be2c5277c7fcf05fcc3a73abf41610695738c1d7b", input=input_data)
+            # Use recraft-ai/recraft-crisp-upscale model
+            output = replicate.run("recraft-ai/recraft-crisp-upscale", input=input_data)
             
-            # Assuming output is a URL, download it
+            # Assuming output is a URL or file-like object, download/write it
             if isinstance(output, str) and output.startswith('http'):
+                # Handle URL output
                 response = requests.get(output, stream=True)
                 response.raise_for_status()
                 with open(temp_output_path, "wb") as f:
                     for chunk in response.iter_content(chunk_size=8192):
                         f.write(chunk)
+            elif hasattr(output, 'read'):
+                # Handle file-like object output
+                 with open(temp_output_path, "wb") as f:
+                    f.write(output.read())
             else:
-                 st.error(f"Unexpected output format from Real-ESRGAN: {type(output)}")
+                 st.error(f"Unexpected output format from recraft-crisp-upscale: {type(output)}")
                  return frame # Return original frame on error
 
         sharpened = cv2.imread(temp_output_path)
