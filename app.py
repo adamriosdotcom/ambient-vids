@@ -19,13 +19,14 @@ import io
 import glob
 import requests
 import shutil
+import json
 
 # Load environment variables
 load_dotenv()
 REPLICATE_API_TOKEN = os.getenv('REPLICATE_API_TOKEN')
 
 # Configuration parameters
-CLIP_DURATION = 10  # 10 seconds per clip (changed from 5)
+# CLIP_DURATION = 10  # 10 seconds per clip (changed from 5)
 NUM_LOOPS = 2      # Loop final video twice
 
 # Constants for audio resources
@@ -51,13 +52,66 @@ def get_project_path(run_id, asset_type, filename):
     project_dir = f"projects/{run_id}"
     
     if asset_type == "image":
-        return f"{project_dir}/images/{filename}"
+        return os.path.abspath(f"{project_dir}/images/{filename}") # Use absolute paths
     elif asset_type == "video":
-        return f"{project_dir}/videos/{filename}"
+        return os.path.abspath(f"{project_dir}/videos/{filename}") # Use absolute paths
     elif asset_type == "final":
-        return f"{project_dir}/final/{filename}"
+        return os.path.abspath(f"{project_dir}/final/{filename}") # Use absolute paths
+    elif asset_type == "state":
+        return os.path.abspath(f"{project_dir}/session_state.json") # State file path
     else:
-        return f"{project_dir}/{filename}"
+        return os.path.abspath(f"{project_dir}/{filename}") # Use absolute paths
+
+# Persistence functions
+SAVABLE_STATE_KEYS = [
+    'step', 'run_id', 'history', 'prompt', 'selected_prompt', 
+    'optimized_prompts', 'generated_images', 'selected_image_path', 
+    'upscaled_image_path', 'generated_videos', 'video_attempts', 
+    'selected_video', 'clip_paths', 'current_start_image_path', 
+    'loop_count', 'final_video_path', 'target_duration', 
+    'audio_added', 'selected_audio_path', 'clip_duration'
+]
+
+def save_session_to_file(run_id):
+    """Saves the current savable session state to a JSON file."""
+    state_file = get_project_path(run_id, "state", "session_state.json")
+    state_to_save = {key: st.session_state.get(key) for key in SAVABLE_STATE_KEYS if key in st.session_state}
+    
+    try:
+        with open(state_file, 'w') as f:
+            json.dump(state_to_save, f, indent=4)
+        print(f"Session state saved to {state_file}")
+    except Exception as e:
+        st.error(f"Error saving session state: {e}")
+
+def load_session_from_file(run_id):
+    """Loads session state from a JSON file and updates the current session."""
+    state_file = get_project_path(run_id, "state", "session_state.json")
+    if not os.path.exists(state_file):
+        st.error(f"State file not found for project {run_id}")
+        return False
+        
+    try:
+        with open(state_file, 'r') as f:
+            loaded_state = json.load(f)
+        
+        # Update current session state
+        for key, value in loaded_state.items():
+            if key in SAVABLE_STATE_KEYS:
+                st.session_state[key] = value
+            else:
+                print(f"Warning: Skipping unknown key '{key}' from state file.")
+        
+        st.success(f"Project {run_id} loaded successfully.")
+        # Ensure essential defaults if missing
+        if 'step' not in st.session_state: st.session_state.step = 1
+        if 'clip_duration' not in st.session_state: st.session_state.clip_duration = 10
+        if 'history' not in st.session_state: st.session_state.history = {}
+        
+        return True
+    except Exception as e:
+        st.error(f"Error loading session state: {e}")
+        return False
 
 # Initialize available classical music once at app startup
 def find_matching_files():
@@ -190,385 +244,224 @@ def add_audio_to_video(video_path, audio_path, output_path, loop_audio=True):
 # Initialize the available classical music files
 CLASSICAL_MUSIC = find_matching_files()
 
-# Initialize session state if needed
-if 'step' not in st.session_state:
-    st.session_state.step = 1
+# Initial check: Load existing project or start new?
 if 'run_id' not in st.session_state:
-    st.session_state.run_id = str(uuid.uuid4())[:8]
-    # Create project folders when initializing run_id
-    create_project_folder(st.session_state.run_id)
-if 'history' not in st.session_state:
-    st.session_state.history = {}  # Track steps and their outputs
-if 'scene_result' not in st.session_state:
-    st.session_state.scene_result = None
-if 'all_prompts' not in st.session_state:
-    st.session_state.all_prompts = []
-if 'optimized_prompts' not in st.session_state:
-    st.session_state.optimized_prompts = []
-if 'prompt' not in st.session_state:
-    st.session_state.prompt = ""
-if 'selected_prompt' not in st.session_state:
-    st.session_state.selected_prompt = ""
-if 'generated_images' not in st.session_state:
-    st.session_state.generated_images = []
-if 'selected_image' not in st.session_state:
-    st.session_state.selected_image = None
-if 'selected_image_path' not in st.session_state:
-    st.session_state.selected_image_path = ""
-if 'upscaled_image_path' not in st.session_state:
-    st.session_state.upscaled_image_path = ""
-if 'generated_videos' not in st.session_state:
-    st.session_state.generated_videos = []
-if 'video_attempts' not in st.session_state:
-    st.session_state.video_attempts = 0
-if 'selected_video' not in st.session_state:
-    st.session_state.selected_video = None
-if 'clip_paths' not in st.session_state:
-    st.session_state.clip_paths = []
-if 'current_start_image_path' not in st.session_state:
-    st.session_state.current_start_image_path = ""
-if 'loop_count' not in st.session_state:
-    st.session_state.loop_count = 1
-if 'final_video_path' not in st.session_state:
-    st.session_state.final_video_path = ""
-if 'target_duration' not in st.session_state:
-    st.session_state.target_duration = 30
-if 'audio_added' not in st.session_state:
-    st.session_state.audio_added = False
-if 'selected_audio_path' not in st.session_state:
-    st.session_state.selected_audio_path = None
-
-# Functions to navigate between steps
-def go_to_step(step_number):
-    """Navigate to a specific step in the workflow"""
-    st.session_state.step = step_number
-    st.experimental_rerun()
-
-def save_step_state(step_number):
-    """Save the current state of a step to history"""
-    if step_number not in st.session_state.history:
-        st.session_state.history[step_number] = []
+    st.title("Load or Start New Project")
     
-    # Save relevant state for the step
-    if step_number == 1:
-        state = {
-            'prompt': st.session_state.prompt,
-            'selected_prompt': st.session_state.selected_prompt,
-        }
-    elif step_number == 3:
-        state = {
-            'generated_images': st.session_state.generated_images.copy() if st.session_state.generated_images else []
-        }
-    elif step_number == 4:
-        state = {
-            'generated_videos': st.session_state.generated_videos.copy() if st.session_state.generated_videos else []
-        }
-    elif step_number == 6:
-        state = {
-            'generated_videos': st.session_state.generated_videos.copy() if st.session_state.generated_videos else [],
-            'loop_count': st.session_state.loop_count
-        }
+    # List existing projects
+    project_base_dir = "projects"
+    os.makedirs(project_base_dir, exist_ok=True)
+    existing_projects = [d for d in os.listdir(project_base_dir) 
+                         if os.path.isdir(os.path.join(project_base_dir, d))] 
+    
+    if existing_projects:
+        st.subheader("Load Existing Project")
+        selected_project_id = st.selectbox("Select Project ID", options=[""] + existing_projects)
+        if selected_project_id:
+            if st.button(f"Load Project: {selected_project_id}"):
+                if load_session_from_file(selected_project_id):
+                    go_to_step(st.session_state.step)
+                else:
+                    # Error handled in load_session_from_file
+                    pass # Stay on loading page
     else:
-        state = {}
-    
-    # Add timestamp
-    state['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    state['attempt'] = len(st.session_state.history[step_number]) + 1
-    
-    st.session_state.history[step_number].append(state)
+        st.info("No existing projects found.")
 
-# Utility functions
-def extract_frames(video_path):
-    """Extracts all frames from a video file and returns (frames, fps)."""
-    cap = cv2.VideoCapture(video_path)
-    frames = []
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        frames.append(frame)
-    cap.release()
-    return frames, fps
+    st.subheader("Start New Project")
+    if st.button("Start New Ambience Video"):
+        # Initialize new session
+        st.session_state.run_id = str(uuid.uuid4())[:8]
+        create_project_folder(st.session_state.run_id)
+        st.session_state.step = 1
+        st.session_state.history = {}
+        st.session_state.clip_duration = 10 # Default for new projects
+        # Initialize other keys to defaults or empty
+        for key in SAVABLE_STATE_KEYS:
+            if key not in ['run_id', 'step', 'history', 'clip_duration']:
+                 if key in ['optimized_prompts', 'generated_images', 'generated_videos', 'clip_paths']:
+                     st.session_state[key] = []
+                 elif key == 'video_attempts':
+                     st.session_state[key] = 0
+                 elif key == 'loop_count':
+                     st.session_state[key] = 1
+                 elif key == 'target_duration':
+                     st.session_state[key] = 30
+                 elif key == 'audio_added':
+                     st.session_state[key] = False
+                 else:
+                     st.session_state[key] = None
+                     
+        save_session_to_file(st.session_state.run_id) # Save initial state
+        st.experimental_rerun() # Rerun to start the workflow
 
-def write_video(frames, fps, output_path):
-    """Writes a list of frames to a video file."""
-    if not frames:
-        return
-    height, width, _ = frames[0].shape
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
-    for frame in frames:
-        out.write(frame)
-    out.release()
+# --- Main Workflow Logic (Only runs if run_id is set) --- #
+elif 'run_id' in st.session_state:
+    st.title(f"Ambience Video Creator (Project: {st.session_state.run_id})")
 
-def register_clipB(clipB_frames, ref_frame):
-    """Aligns clipB's frames to the reference frame using ORB feature matching."""
-    orb = cv2.ORB_create(500)
-    kp1, des1 = orb.detectAndCompute(clipB_frames[0], None)
-    kp2, des2 = orb.detectAndCompute(ref_frame, None)
-    
-    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-    matches = bf.match(des1, des2)
-    if len(matches) < 4:
-        print("Not enough matches; skipping registration for this clip.")
-        return clipB_frames
-    matches = sorted(matches, key=lambda m: m.distance)[:50]
-    pts1 = np.float32([kp1[m.queryIdx].pt for m in matches]).reshape(-1,1,2)
-    pts2 = np.float32([kp2[m.trainIdx].pt for m in matches]).reshape(-1,1,2)
-    
-    H, mask = cv2.findHomography(pts1, pts2, cv2.RANSAC, 5.0)
-    if H is None:
-        print("Homography computation failed; skipping registration.")
-        return clipB_frames
-    
-    h, w = ref_frame.shape[:2]
-    registered = []
-    for frame in clipB_frames:
-        warped = cv2.warpPerspective(frame, H, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
-        registered.append(warped)
-    return registered
-
-def chain_crossfade(clip_paths, output_path, fade_duration):
-    """Chains multiple video clips with crossfade transitions."""
-    if len(clip_paths) < 2:
-        raise ValueError("Need at least 2 clips to crossfade.")
-
-    inputs = []
-    durations = []
-    target_width, target_height = 1920, 1080
-
-    for path in clip_paths:
-        input_stream = ffmpeg.input(path)
-        scaled_stream = ffmpeg.filter(input_stream['v'], 'scale', target_width, target_height)
-        inputs.append(scaled_stream)
-
-        info = ffmpeg.probe(path)
-        durations.append(float(info['format']['duration']))
-
-    out_stream = inputs[0]
-    current_duration = durations[0]
-
-    for i in range(1, len(inputs)):
-        out_stream = ffmpeg.filter(
-            [out_stream, inputs[i]],
-            'xfade',
-            transition='fade',
-            duration=fade_duration,
-            offset=current_duration - fade_duration
-        )
-        current_duration = current_duration + durations[i] - fade_duration
-
-    (
-        ffmpeg
-        .output(out_stream, output_path, vcodec='libx264', acodec='aac', pix_fmt='yuv420p')
-        .overwrite_output()
-        .run()
-    )
-
-def loop_video(input_path, output_path, num_loops=2):
-    """Loop a video a specified number of times."""
-    # Create temporary copies for looping
-    loop_paths = []
-    for i in range(num_loops):
-        copy_name = f"temp_loop_copy_{i}.mp4"
-        os.system(f"cp {input_path} {copy_name}")
-        loop_paths.append(copy_name)
-    
-    # Crossfade loop copies together
-    chain_crossfade(loop_paths, output_path, 1.0)
-    
-    # Clean up temp files
-    for p in loop_paths:
-        if os.path.exists(p):
-            os.remove(p)
-    
-    return output_path
-
-def sharpen_frame(frame):
-    """Sharpens/upscales a frame using the Real-ESRGAN model."""
-    temp_input = "temp_frame.png"
-    temp_output = "temp_frame_sharpened.png"
-    cv2.imwrite(temp_input, frame)
-    input_data = {
-        "image": open(temp_input, "rb")
-    }
-    output = replicate.run("recraft-ai/recraft-crisp-upscale", input=input_data)
-    with open(temp_output, "wb") as f:
-        f.write(output.read())
-    sharpened = cv2.imread(temp_output)
-    if os.path.exists(temp_input):
-        os.remove(temp_input)
-    if os.path.exists(temp_output):
-        os.remove(temp_output)
-    torch.cuda.empty_cache()
-    return sharpened
-
-def get_video_thumbnail(video_path):
-    """Extract the middle frame from a video for thumbnail display."""
-    cap = cv2.VideoCapture(video_path)
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames // 2)
-    ret, frame = cap.read()
-    cap.release()
-    if ret:
-        return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    return None
-
-def image_to_base64(image):
-    """Convert a PIL Image to base64 string."""
-    buffered = io.BytesIO()
-    image.save(buffered, format="PNG")
-    return base64.b64encode(buffered.getvalue()).decode()
-
-def get_video_html(video_path):
-    """Generate HTML for video display."""
-    video_file = open(video_path, 'rb')
-    video_bytes = video_file.read()
-    b64 = base64.b64encode(video_bytes).decode()
-    return f"""
-    <video width="100%" controls>
-        <source src="data:video/mp4;base64,{b64}" type="video/mp4">
-    </video>
-    """
-
-def check_files(files, details=False):
-    """Check if files exist and print their details."""
-    results = []
-    for file in files:
-        exists = os.path.exists(file)
-        if exists:
-            size = os.path.getsize(file)
-            if details:
-                # Try to get more file info
-                try:
-                    if file.lower().endswith(('.png', '.jpg', '.jpeg')):
-                        img = Image.open(file)
-                        results.append((file, exists, size, f"{img.width}x{img.height} pixels, {img.mode} mode"))
-                    elif file.lower().endswith(('.mp4', '.mov')):
-                        cap = cv2.VideoCapture(file)
-                        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                        frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                        fps = cap.get(cv2.CAP_PROP_FPS)
-                        cap.release()
-                        results.append((file, exists, size, f"{width}x{height} pixels, {frames} frames, {fps} fps"))
-                    else:
-                        results.append((file, exists, size, ""))
-                except Exception as e:
-                    results.append((file, exists, size, f"Error: {e}"))
-            else:
-                results.append((file, exists, size, ""))
-        else:
-            results.append((file, exists, 0, ""))
-    return results
-
-def generate_optimized_prompt(prompt):
-    """Generate a single optimized prompt from the combined prompt."""
-    # Base prompt template
-    user_image_prompt = f"""
-    Give me a highly detailed prompt to provide to an image generator based on the scene description below. The image should be highly detailed and textured, like a heavily stylized and realistic illustration. The scene is magical, colorful, awe-inspiring. emphasize architecture, subject placement, and details that resonate deeply. Be imaginative and descriptive. IMPORTANT: try your best to incorporate elements that have subtle movement because the image is ultimately going to be used to create a looping video which will serve as background ambience, so if there is water, we will want that flowing, if there is tall grass, we want that blowing in the breeze, if there is smoke, we want to see it, if there are animals, we want them grazing or walking, etc.
-
-    Ensure logical consistency - walking paths and streams should lead somewhere and not stop randomly, gates should be connected to a wall or fence and not standing by themselves, etc. Add thoughtful details that give a rich backstory to the image.
-
-    The beauty should be fairytale-like. Perfect lighting, one in a million compositions, surreal colors. This image should be the ideal and perfect example of the scene.
-    
-    avoid chaotic, busy scenes and prefer beautiful, more minimal, well-balanced scenes.
-
-    description: {prompt}
-    """
-    
-    # Generate a single optimized prompt
-    try:
-        output = replicate.run(
-            "anthropic/claude-3.7-sonnet", 
-            input={
-                "prompt": user_image_prompt,
-                "temperature": 0.7,
-                "max_tokens": 2048
-            }
-        )
-        optimized = "".join(output)
+    # Navigation sidebar (add this to show the workflow and allow jumping to steps)
+    with st.sidebar:
+        st.header("Navigation")
+        st.write("Click a step to navigate:")
         
-        # Return the optimized prompt if successful
-        if optimized:
-            return optimized
-        else:
-            st.error("Failed to generate optimized prompt")
-            return None
-    except Exception as e:
-        st.error(f"Error generating optimized prompt: {e}")
-        return None
+        # Only show steps we've visited or are at currently
+        max_step = max(st.session_state.step, 1)
+        
+        if st.button("🏠 Step 1: Enter Description", disabled=False):
+            go_to_step(1)
+        
+        if max_step >= 3 and st.button("🖼️ Step 3: Select Image", disabled=False):
+            go_to_step(3)
+        
+        if max_step >= 4 and st.button("🎬 Step 4: Select Initial Video", disabled=False):
+            go_to_step(4)
+        
+        if max_step >= 5 and st.button("➕ Step 5: Continue or Complete", disabled=False):
+            go_to_step(5)
+        
+        if max_step >= 6 and st.button("�� Step 6: Additional Videos", disabled=False):
+            go_to_step(6)
+        
+        if max_step >= 7 and st.button("⚙️ Step 7: Final Settings", disabled=False):
+            go_to_step(7)
 
-# Main UI layout
-st.title("Ambience Video Creator")
+    # Step 1: Initial prompt input
+    if st.session_state.step == 1:
+        st.header("Step 1: Enter Your Scene Description & Settings")
+        
+        prompt = st.text_area("Description (e.g., 'a cozy library at night with a cat curled up on a chair')", 
+                             value=st.session_state.prompt or "a cozy cabin in a snowy forest with a crackling fireplace with soft embers",
+                             height=100)
 
-# Navigation sidebar (add this to show the workflow and allow jumping to steps)
-with st.sidebar:
-    st.header("Navigation")
-    st.write("Click a step to navigate:")
-    
-    # Only show steps we've visited or are at currently
-    max_step = max(st.session_state.step, 1)
-    
-    if st.button("🏠 Step 1: Enter Description", disabled=False):
-        go_to_step(1)
-    
-    if max_step >= 3 and st.button("🖼️ Step 3: Select Image", disabled=False):
-        go_to_step(3)
-    
-    if max_step >= 4 and st.button("🎬 Step 4: Select Initial Video", disabled=False):
-        go_to_step(4)
-    
-    if max_step >= 5 and st.button("➕ Step 5: Continue or Complete", disabled=False):
-        go_to_step(5)
-    
-    if max_step >= 6 and st.button("🎥 Step 6: Additional Videos", disabled=False):
-        go_to_step(6)
-    
-    if max_step >= 7 and st.button("⚙️ Step 7: Final Settings", disabled=False):
-        go_to_step(7)
-
-# Step 1: Initial prompt input
-if st.session_state.step == 1:
-    st.header("Step 1: Enter Your Scene Description")
-    
-    prompt = st.text_area("Description (e.g., 'a cozy library at night with a cat curled up on a chair')", 
-                         value=st.session_state.prompt or "a cozy cabin in a snowy forest with a crackling fireplace with soft embers",
-                         height=100)
-    
-    if st.button("Generate Images"):
-        if prompt:
-            st.session_state.prompt = prompt
-            
-            # Create placeholders for image generation progress
-            st.write("Generating optimized prompts and images...")
-            progress_bar = st.progress(0)
-            
-            # Store all generated prompts
-            all_prompts = []
-            image_paths = []
-            
-            # Generate 4 different optimized prompts and corresponding images
-            try:
-                for j in range(4):
-                    # Update progress
-                    progress_bar.progress(j / 4 * 0.5)  # First half of progress is for prompts
-                    st.write(f"Generating optimized prompt {j+1}/4...")
+        # Add clip duration selection
+        st.session_state.clip_duration = st.radio(
+            "Select Video Clip Duration (seconds)",
+            (5, 10),
+            index=1 if st.session_state.clip_duration == 10 else 0, # Default selection based on state
+            horizontal=True
+        )
+        st.info(f"Each generated video segment will be {st.session_state.clip_duration} seconds long.")
+        
+        if st.button("Generate Images"):
+            if prompt:
+                st.session_state.prompt = prompt
+                # Clip duration is already set in session state via the radio button
+                
+                # Create placeholders for image generation progress
+                st.write("Generating optimized prompts and images...")
+                progress_bar = st.progress(0)
+                
+                # Store all generated prompts
+                all_prompts = []
+                image_paths = []
+                
+                # Generate 4 different optimized prompts and corresponding images
+                try:
+                    for j in range(4):
+                        # Update progress
+                        progress_bar.progress(j / 4 * 0.5)  # First half of progress is for prompts
+                        st.write(f"Generating optimized prompt {j+1}/4...")
+                        
+                        # Generate a unique optimized prompt each time
+                        with st.spinner(f"Creating optimized prompt {j+1}..."):
+                            optimized_prompt = generate_optimized_prompt(prompt)
+                            
+                            if optimized_prompt:
+                                all_prompts.append(optimized_prompt)
+                                
+                                # Show the generated prompt in an expander
+                                with st.expander(f"Optimized Prompt {j+1}"):
+                                    st.text_area(f"Prompt {j+1}", optimized_prompt, height=150)
+                                
+                                # Generate an image from this specific prompt
+                                st.write(f"Generating image {j+1} from prompt {j+1}...")
+                                progress_bar.progress(j / 4 * 0.5 + 0.125)  # Update progress
+                                
+                                image_output = replicate.run(
+                                    "google/imagen-3",
+                                    input={
+                                        "prompt": optimized_prompt,
+                                        "aspect_ratio": "16:9",
+                                        "negative_prompt": "fast movement",
+                                        "safety_filter_level": "block_medium_and_above"
+                                    }
+                                )
+                                
+                                # Save the image to project folder
+                                image_filename = f"image_{j}.png"
+                                image_path = get_project_path(st.session_state.run_id, "image", image_filename)
+                                
+                                with open(image_path, "wb") as img_file:
+                                    img_file.write(image_output.read())
+                                
+                                # Verify the image was saved correctly
+                                if os.path.exists(image_path) and os.path.getsize(image_path) > 0:
+                                    st.success(f"Image {j+1} generated successfully!")
+                                    # Display a thumbnail of the image
+                                    try:
+                                        img = Image.open(image_path)
+                                        st.image(img, caption=f"Image {j+1} (from Prompt {j+1})", width=300)
+                                    except Exception as e:
+                                        st.error(f"Error displaying thumbnail: {e}")
+                                else:
+                                    st.error(f"Failed to save image {j+1}")
+                                
+                                # Store the image path
+                                image_paths.append(image_path)
+                            else:
+                                st.error(f"Failed to generate prompt {j+1}. Skipping this iteration.")
                     
-                    # Generate a unique optimized prompt each time
-                    with st.spinner(f"Creating optimized prompt {j+1}..."):
-                        optimized_prompt = generate_optimized_prompt(prompt)
+                    progress_bar.progress(1.0)
+                    
+                    # Store all generated prompts and images in session state
+                    st.session_state.optimized_prompts = all_prompts
+                    st.session_state.generated_images = image_paths
+                    
+                    # Save state after generating images
+                    save_step_state(1)
+                    save_step_state(3)
+                    save_session_to_file(st.session_state.run_id)
+                    
+                    # Count valid images
+                    valid_images = [p for p in image_paths if os.path.exists(p) and os.path.getsize(p) > 0]
+                    if len(valid_images) > 0:
+                        st.success(f"Generated {len(valid_images)} images from {len(all_prompts)} unique prompts!")
+                        # Skip step 2 and go directly to step 3 (image selection)
+                        st.session_state.step = 3
+                        st.button("Proceed to Image Selection", on_click=lambda: st.experimental_rerun())
+                    else:
+                        st.error("No valid images were generated. Please try again.")
+                except Exception as e:
+                    st.error(f"Error in prompt generation process: {e}")
+                    st.error(f"Exception details: {str(e)}")
+
+    # Step 3: Image selection
+    elif st.session_state.step == 3:
+        st.header("Step 3: Select an Image")
+        
+        # Add "Regenerate Images" button
+        if st.button("🔄 Regenerate Images", help="Generate new optimized prompts and images"):
+            if st.session_state.prompt:
+                st.write("Generating new optimized prompts and images...")
+                progress_bar = st.progress(0)
+                
+                try:
+                    # Store all generated prompts
+                    all_prompts = []
+                    image_paths = []
+                    attempt = len(st.session_state.history.get(3, [])) + 1
+                    
+                    # Generate 4 different optimized prompts and corresponding images
+                    for j in range(4):
+                        # Update progress
+                        progress_bar.progress(j / 4 * 0.5)  # First half of progress is for prompts
+                        
+                        # Generate a unique optimized prompt each time
+                        optimized_prompt = generate_optimized_prompt(st.session_state.prompt)
                         
                         if optimized_prompt:
                             all_prompts.append(optimized_prompt)
                             
-                            # Show the generated prompt in an expander
-                            with st.expander(f"Optimized Prompt {j+1}"):
-                                st.text_area(f"Prompt {j+1}", optimized_prompt, height=150)
-                            
                             # Generate an image from this specific prompt
-                            st.write(f"Generating image {j+1} from prompt {j+1}...")
                             progress_bar.progress(j / 4 * 0.5 + 0.125)  # Update progress
                             
                             image_output = replicate.run(
@@ -581,202 +474,115 @@ if st.session_state.step == 1:
                                 }
                             )
                             
-                            # Save the image to project folder
-                            image_filename = f"image_{j}.png"
+                            # Save the image to project folder with attempt number
+                            image_filename = f"image_{attempt}_{j}.png"
                             image_path = get_project_path(st.session_state.run_id, "image", image_filename)
                             
                             with open(image_path, "wb") as img_file:
                                 img_file.write(image_output.read())
                             
-                            # Verify the image was saved correctly
-                            if os.path.exists(image_path) and os.path.getsize(image_path) > 0:
-                                st.success(f"Image {j+1} generated successfully!")
-                                # Display a thumbnail of the image
-                                try:
-                                    img = Image.open(image_path)
-                                    st.image(img, caption=f"Image {j+1} (from Prompt {j+1})", width=300)
-                                except Exception as e:
-                                    st.error(f"Error displaying thumbnail: {e}")
-                            else:
-                                st.error(f"Failed to save image {j+1}")
-                            
                             # Store the image path
                             image_paths.append(image_path)
-                        else:
-                            st.error(f"Failed to generate prompt {j+1}. Skipping this iteration.")
-                
-                progress_bar.progress(1.0)
-                
-                # Store all generated prompts and images in session state
-                st.session_state.optimized_prompts = all_prompts
-                st.session_state.generated_images = image_paths
-                
-                # Save state after generating images
-                save_step_state(1)
-                save_step_state(3)
-                
-                # Count valid images
-                valid_images = [p for p in image_paths if os.path.exists(p) and os.path.getsize(p) > 0]
-                if len(valid_images) > 0:
-                    st.success(f"Generated {len(valid_images)} images from {len(all_prompts)} unique prompts!")
-                    # Skip step 2 and go directly to step 3 (image selection)
-                    st.session_state.step = 3
-                    st.button("Proceed to Image Selection", on_click=lambda: st.experimental_rerun())
+                    
+                    progress_bar.progress(1.0)
+                    
+                    # Store all generated prompts and images in session state
+                    st.session_state.optimized_prompts = all_prompts
+                    st.session_state.generated_images = image_paths
+                    
+                    # Save state after generating images
+                    save_step_state(3)
+                    save_session_to_file(st.session_state.run_id)
+                    st.experimental_rerun()
+                except Exception as e:
+                    st.error(f"Error regenerating images: {e}")
+        
+        # If we have the optimized prompts, display them
+        if st.session_state.optimized_prompts:
+            with st.expander("Show Optimized Prompts"):
+                for i, opt_prompt in enumerate(st.session_state.optimized_prompts):
+                    if i < len(st.session_state.optimized_prompts):
+                        st.text_area(f"Prompt {i+1}", opt_prompt, height=100)
+        
+        # Add debug info
+        st.write(f"Found {len(st.session_state.generated_images)} generated images")
+        
+        # Check if files exist first
+        file_checks = check_files(st.session_state.generated_images, details=True)
+        with st.expander("Show File Check Results"):
+            st.write("File check results:")
+            for file, exists, size, details in file_checks:
+                if exists:
+                    st.success(f"✅ {os.path.basename(file)}: {size} bytes - {details}")
                 else:
-                    st.error("No valid images were generated. Please try again.")
-            except Exception as e:
-                st.error(f"Error in prompt generation process: {e}")
-                st.error(f"Exception details: {str(e)}")
-
-# Step 3: Image selection
-elif st.session_state.step == 3:
-    st.header("Step 3: Select an Image")
-    
-    # Add "Regenerate Images" button
-    if st.button("🔄 Regenerate Images", help="Generate new optimized prompts and images"):
-        if st.session_state.prompt:
-            st.write("Generating new optimized prompts and images...")
-            progress_bar = st.progress(0)
-            
-            try:
-                # Store all generated prompts
-                all_prompts = []
-                image_paths = []
-                attempt = len(st.session_state.history.get(3, [])) + 1
-                
-                # Generate 4 different optimized prompts and corresponding images
-                for j in range(4):
-                    # Update progress
-                    progress_bar.progress(j / 4 * 0.5)  # First half of progress is for prompts
-                    
-                    # Generate a unique optimized prompt each time
-                    optimized_prompt = generate_optimized_prompt(st.session_state.prompt)
-                    
-                    if optimized_prompt:
-                        all_prompts.append(optimized_prompt)
-                        
-                        # Generate an image from this specific prompt
-                        progress_bar.progress(j / 4 * 0.5 + 0.125)  # Update progress
-                        
-                        image_output = replicate.run(
-                            "google/imagen-3",
-                            input={
-                                "prompt": optimized_prompt,
-                                "aspect_ratio": "16:9",
-                                "negative_prompt": "fast movement",
-                                "safety_filter_level": "block_medium_and_above"
-                            }
-                        )
-                        
-                        # Save the image to project folder with attempt number
-                        image_filename = f"image_{attempt}_{j}.png"
-                        image_path = get_project_path(st.session_state.run_id, "image", image_filename)
-                        
-                        with open(image_path, "wb") as img_file:
-                            img_file.write(image_output.read())
-                        
-                        # Store the image path
-                        image_paths.append(image_path)
-                
-                progress_bar.progress(1.0)
-                
-                # Store all generated prompts and images in session state
-                st.session_state.optimized_prompts = all_prompts
-                st.session_state.generated_images = image_paths
-                
-                # Save state after generating images
-                save_step_state(3)
+                    st.error(f"❌ {os.path.basename(file)}: Not found")
+        
+        # Display valid images
+        valid_images = [f for f, exists, _, _ in file_checks if exists]
+        
+        if not valid_images:
+            st.error("No valid images found. Please try generating images again.")
+            if st.button("Return to Step 1"):
+                st.session_state.step = 1
                 st.experimental_rerun()
-            except Exception as e:
-                st.error(f"Error regenerating images: {e}")
-    
-    # If we have the optimized prompts, display them
-    if st.session_state.optimized_prompts:
-        with st.expander("Show Optimized Prompts"):
-            for i, opt_prompt in enumerate(st.session_state.optimized_prompts):
-                if i < len(st.session_state.optimized_prompts):
-                    st.text_area(f"Prompt {i+1}", opt_prompt, height=100)
-    
-    # Add debug info
-    st.write(f"Found {len(st.session_state.generated_images)} generated images")
-    
-    # Check if files exist first
-    file_checks = check_files(st.session_state.generated_images, details=True)
-    with st.expander("Show File Check Results"):
-        st.write("File check results:")
-        for file, exists, size, details in file_checks:
-            if exists:
-                st.success(f"✅ {os.path.basename(file)}: {size} bytes - {details}")
-            else:
-                st.error(f"❌ {os.path.basename(file)}: Not found")
-    
-    # Display valid images
-    valid_images = [f for f, exists, _, _ in file_checks if exists]
-    
-    if not valid_images:
-        st.error("No valid images found. Please try generating images again.")
-        if st.button("Return to Step 1"):
-            st.session_state.step = 1
-            st.experimental_rerun()
-    else:
-        # Display the valid images side by side
-        cols = st.columns(len(valid_images))
-        for i, image_path in enumerate(valid_images):
-            with cols[i]:
-                try:
-                    # Try to load with PIL first to verify the image is valid
+        else:
+            # Display the valid images side by side
+            cols = st.columns(len(valid_images))
+            for i, image_path in enumerate(valid_images):
+                with cols[i]:
                     try:
-                        img = Image.open(image_path)
-                        prompt_index = i if i < len(st.session_state.optimized_prompts) else 0
-                        st.image(img, caption=f"Option {i+1} (Prompt {prompt_index+1})")
-                    except Exception as e:
-                        st.error(f"Error loading image with PIL: {e}")
-                        # Fallback to direct file path
-                        st.image(image_path, caption=f"Option {i+1}")
-                    
-                    if st.button(f"Select Image {i+1}"):
-                        st.session_state.selected_image_path = image_path
-                        # Store the corresponding prompt
-                        prompt_index = i if i < len(st.session_state.optimized_prompts) else 0
-                        st.session_state.selected_prompt = st.session_state.optimized_prompts[prompt_index]
-                        
+                        # Try to load with PIL first to verify the image is valid
                         try:
-                            # Upscale the selected image
-                            with st.spinner("Upscaling your selected image..."):
-                                img = cv2.imread(image_path)
-                                if img is None:
-                                    st.error(f"OpenCV could not read image {image_path}")
-                                    # Try with PIL and convert to CV2
-                                    pil_img = Image.open(image_path)
-                                    img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-                                
-                                upscaled_img = sharpen_frame(img)
-                                upscaled_filename = "upscaled_image.png"
-                                upscaled_path = get_project_path(st.session_state.run_id, "image", upscaled_filename)
-                                cv2.imwrite(upscaled_path, upscaled_img)
-                                st.session_state.upscaled_image_path = upscaled_path
-                                st.session_state.current_start_image_path = upscaled_path
-                                
-                                # Show upscaled image
-                                st.success(f"Image upscaled successfully!")
-                                st.image(upscaled_path, caption="Upscaled Image")
+                            img = Image.open(image_path)
+                            prompt_index = i if i < len(st.session_state.optimized_prompts) else 0
+                            st.image(img, caption=f"Option {i+1} (Prompt {prompt_index+1})")
+                        except Exception as e:
+                            st.error(f"Error loading image with PIL: {e}")
+                            # Fallback to direct file path
+                            st.image(image_path, caption=f"Option {i+1}")
+                        
+                        if st.button(f"Select Image {i+1}"):
+                            st.session_state.selected_image_path = image_path
+                            # Store the corresponding prompt
+                            prompt_index = i if i < len(st.session_state.optimized_prompts) else 0
+                            st.session_state.selected_prompt = st.session_state.optimized_prompts[prompt_index]
                             
-                            # Generate 2 video options with shorter duration
-                            with st.spinner("Generating initial video options..."):
-                                st.session_state.generated_videos = []
-                                # Updated video prompts for fixed camera
-                                user_video_prompt = "Static camera, fixed perspective. camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0"
-                                negative_prompt_text = "camera movement, pan, tilt, zoom, rotation, camera shake, unsteady camera"
+                            try:
+                                # Upscale the selected image
+                                with st.spinner("Upscaling your selected image..."):
+                                    img = cv2.imread(image_path)
+                                    if img is None:
+                                        st.error(f"OpenCV could not read image {image_path}")
+                                        # Try with PIL and convert to CV2
+                                        pil_img = Image.open(image_path)
+                                        img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+                                    
+                                    upscaled_img = sharpen_frame(img)
+                                    upscaled_filename = "upscaled_image.png"
+                                    upscaled_path = get_project_path(st.session_state.run_id, "image", upscaled_filename)
+                                    cv2.imwrite(upscaled_path, upscaled_img)
+                                    st.session_state.upscaled_image_path = upscaled_path
+                                    st.session_state.current_start_image_path = upscaled_path
+                                    
+                                    # Show upscaled image
+                                    st.success(f"Image upscaled successfully!")
+                                    st.image(upscaled_path, caption="Upscaled Image")
                                 
-                                try:
-                                    # Generate 2 videos
+                                # Generate 2 video options with selected duration
+                                with st.spinner(f"Generating initial {st.session_state.clip_duration}s video options..."):
+                                    st.session_state.generated_videos = []
+                                    # Updated video prompts for fixed camera + focus
+                                    user_video_prompt = "Locked camera shot, fixed perspective, absolutely no camera movement. Maintain focus on the primary subject and keep a constant distance. camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0"
+                                    negative_prompt_text = "camera movement, pan, tilt, zoom, rotation, camera shake, unsteady camera, focus shift, distance change"
+                                    
+                                    # Generate 2 videos (removed nested try)
                                     for j in range(2):
                                         video_filename = f"video_0_{j}.mp4"
                                         video_path = get_project_path(st.session_state.run_id, "video", video_filename)
                                         
                                         input_dict = {
                                             "prompt": user_video_prompt,
-                                            "duration": CLIP_DURATION,  # Use global variable
+                                            "duration": st.session_state.clip_duration, # Use selected duration
                                             "cfg_scale": 0,
                                             "start_image": open(upscaled_path, "rb"),
                                             "aspect_ratio": "16:9",
@@ -792,628 +598,557 @@ elif st.session_state.step == 3:
                                     st.success(f"Generated {len(st.session_state.generated_videos)} videos")
                                     # Save state before advancing
                                     save_step_state(4)
+                                    save_session_to_file(st.session_state.run_id)
                                     # Reset video attempt counter
                                     st.session_state.video_attempts = 0
                                     st.session_state.step = 4
                                     st.experimental_rerun()
-                                except Exception as e:
-                                    st.error(f"Error in video generation process: {e}")
-                        except Exception as e:
-                            st.error(f"Error in video generation process: {e}")
-                except Exception as e:
-                    st.error(f"Error processing image {image_path}: {e}")
-
-# Step 4: Initial Video Selection
-elif st.session_state.step == 4:
-    st.header("Step 4: Select Initial Video")
-    
-    # Add "Regenerate Videos" button
-    if st.button("🔄 Regenerate Videos", help="Generate new video options from the selected image"):
-        if st.session_state.upscaled_image_path and os.path.exists(st.session_state.upscaled_image_path):
-            with st.spinner("Generating new video options..."):
-                try:
-                    st.session_state.video_attempts += 1
-                    attempt = st.session_state.video_attempts
-                    st.session_state.generated_videos = []
-                    # Updated video prompts for fixed camera
-                    user_video_prompt = "Static camera, fixed perspective. camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0"
-                    negative_prompt_text = "camera movement, pan, tilt, zoom, rotation, camera shake, unsteady camera"
-                    
-                    # Generate 2 videos
-                    for j in range(2):
-                        video_filename = f"video_{attempt}_{j}.mp4"
-                        video_path = get_project_path(st.session_state.run_id, "video", video_filename)
-                        
-                        input_dict = {
-                            "prompt": user_video_prompt,
-                            "duration": CLIP_DURATION,
-                            "cfg_scale": 0,
-                            "start_image": open(st.session_state.upscaled_image_path, "rb"),
-                            "aspect_ratio": "16:9",
-                            "negative_prompt": negative_prompt_text
-                        }
-                        
-                        video_output = replicate.run("kwaivgi/kling-v1.6-pro", input=input_dict)
-                        with open(video_path, "wb") as vid_file:
-                            vid_file.write(video_output.read())
-                        
-                        st.session_state.generated_videos.append(video_path)
-                    
-                    save_step_state(4)
-                    st.experimental_rerun()
-                except Exception as e:
-                    st.error(f"Error regenerating videos: {e}")
-    
-    # If we have the selected prompt, display it
-    if st.session_state.selected_prompt:
-        with st.expander("Show Optimized Prompt"):
-            st.text_area("Prompt Used", st.session_state.selected_prompt, height=150)
-    
-    # If we have the selected image, display it
-    if st.session_state.selected_image_path and os.path.exists(st.session_state.selected_image_path):
-        with st.expander("Show Selected Image"):
-            try:
-                img = Image.open(st.session_state.selected_image_path)
-                st.image(img, caption="Selected Image", width=300)
-            except Exception as e:
-                st.error(f"Error displaying selected image: {e}")
-    
-    # Add debug info
-    st.write(f"Found {len(st.session_state.generated_videos)} generated videos")
-    if st.session_state.video_attempts > 0:
-        st.write(f"Video generation attempt: {st.session_state.video_attempts + 1}")
-    
-    # Check if files exist first
-    file_checks = check_files(st.session_state.generated_videos, details=True)
-    with st.expander("Show Video File Check Results"):
-        st.write("Video file check results:")
-        for file, exists, size, details in file_checks:
-            if exists:
-                st.success(f"✅ {os.path.basename(file)}: {size} bytes - {details}")
-            else:
-                st.error(f"❌ {os.path.basename(file)}: Not found")
-    
-    # Display valid videos
-    valid_videos = [f for f, exists, _, _ in file_checks if exists]
-    
-    if not valid_videos:
-        st.error("No valid videos found. Please try generating videos again.")
-        if st.button("Return to Step 3"):
-            st.session_state.step = 3
-            st.experimental_rerun()
-    else:
-        st.write("Please select one of the videos below:")
-        
-        # Display the valid videos side by side
-        cols = st.columns(len(valid_videos))
-        for i, video_path in enumerate(valid_videos):
-            with cols[i]:
-                try:
-                    # Display thumbnails first
-                    try:
-                        thumbnail = get_video_thumbnail(video_path)
-                        if thumbnail is not None:
-                            st.image(thumbnail, caption=f"Video {i+1} Thumbnail")
+                                
+                            except Exception as e:
+                                st.error(f"Error in image selection/video generation process: {e}")
                     except Exception as e:
-                        st.warning(f"Could not generate thumbnail: {e}")
-                    
-                    # Display video
-                    st.video(video_path)
-                    
-                    if st.button(f"Select Video {i+1}", key=f"select_video_{i}"):
-                        st.session_state.clip_paths.append(video_path)
-                        st.success(f"Selected video {i+1}")
-                        
-                        # Extract the last frame, sharpen it for the next clip's start image
-                        with st.spinner("Processing last frame..."):
-                            cap = cv2.VideoCapture(video_path)
-                            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                            cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames - 1)
-                            ret, frame = cap.read()
-                            cap.release()
-                            
-                            if ret:
-                                # Show the last frame
-                                st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), caption="Last Frame")
-                                
-                                # Sharpen the frame
-                                st.info("Upscaling last frame...")
-                                sharpened_last = sharpen_frame(frame)
-                                last_frame_filename = "last_frame.png"
-                                last_frame_path = get_project_path(st.session_state.run_id, "image", last_frame_filename)
-                                cv2.imwrite(last_frame_path, sharpened_last)
-                                st.session_state.current_start_image_path = last_frame_path
-                                
-                                # Show the sharpened frame
-                                st.image(cv2.cvtColor(sharpened_last, cv2.COLOR_BGR2RGB), caption="Sharpened Last Frame")
-                                st.success("Last frame processed successfully!")
-                            else:
-                                st.error("Could not read the last frame.")
-                        
-                        # For minimal test, go directly to step 5
-                        st.info("Moving to next step...")
-                        st.session_state.step = 5
-                        st.button("Continue", on_click=lambda: st.experimental_rerun())
-                except Exception as e:
-                    st.error(f"Error processing video {video_path}: {e}")
+                        st.error(f"Error processing image {image_path}: {e}")
 
-# Step 5: Continue or Complete
-elif st.session_state.step == 5:
-    st.header(f"Step 5: Continue or Complete (Current Loop: {st.session_state.loop_count})")
-    
-    # Show video path info in expandable section
-    with st.expander("Current Video Information"):
-        st.write(f"Videos in sequence so far: {len(st.session_state.clip_paths)}")
-        for i, path in enumerate(st.session_state.clip_paths):
-            st.write(f"Video {i+1}: {path}")
-    
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        if st.button("Add Another Video Segment"):
-            # Generate 2 new video options using the last frame
-            with st.spinner("Generating more video options..."):
-                st.session_state.generated_videos = []
-                # Updated video prompts for fixed camera
-                user_video_prompt = "Static camera, fixed perspective. camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0"
-                negative_prompt_text = "camera movement, pan, tilt, zoom, rotation, camera shake, unsteady camera"
-                
-                try:
-                    # Generate 2 videos
-                    for j in range(2):
-                        video_filename = f"video_{st.session_state.loop_count}_{j}.mp4"
-                        video_path = get_project_path(st.session_state.run_id, "video", video_filename)
-                        
-                        input_dict = {
-                            "prompt": user_video_prompt,
-                            "duration": CLIP_DURATION,
-                            "cfg_scale": 0,
-                            "start_image": open(st.session_state.current_start_image_path, "rb"),
-                            "aspect_ratio": "16:9",
-                            "negative_prompt": negative_prompt_text
-                        }
-                        
-                        video_output = replicate.run("kwaivgi/kling-v1.6-pro", input=input_dict)
-                        with open(video_path, "wb") as vid_file:
-                            vid_file.write(video_output.read())
-                        
-                        # Register frames
-                        frames, fps = extract_frames(video_path)
-                        ref_img = cv2.imread(st.session_state.current_start_image_path)
-                        registered_frames = register_clipB(frames, ref_img)
-                        write_video(registered_frames, fps, video_path)
-                        
-                        st.session_state.generated_videos.append(video_path)
-                    
-                    st.session_state.step = 6
-                    st.experimental_rerun()
-                except Exception as e:
-                    st.error(f"Error generating videos: {e}")
-    
-    with col2:
-        if st.button("Complete the Loop"):
-            # Generate final video using the initial image as end point
-            with st.spinner("Generating final loop closure video..."):
-                final_clip_path = f"{st.session_state.run_id}_final_clip.mp4"
-                # Updated video prompts for fixed camera
-                user_video_prompt = "Static camera, fixed perspective. camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0"
-                negative_prompt_text = "camera movement, pan, tilt, zoom, rotation, camera shake, unsteady camera"
-                
-                input_dict = {
-                    "prompt": user_video_prompt,
-                    "duration": CLIP_DURATION,
-                    "cfg_scale": 0,
-                    "start_image": open(st.session_state.current_start_image_path, "rb"),
-                    "aspect_ratio": "16:9",
-                    "negative_prompt": negative_prompt_text,
-                    "end_image": open(st.session_state.upscaled_image_path, "rb")
-                }
-                
-                try:
-                    video_output = replicate.run("kwaivgi/kling-v1.6-pro", input=input_dict)
-                    with open(final_clip_path, "wb") as vid_file:
-                        vid_file.write(video_output.read())
-                    
-                    # Register frames
-                    frames, fps = extract_frames(final_clip_path)
-                    ref_img = cv2.imread(st.session_state.current_start_image_path)
-                    registered_frames = register_clipB(frames, ref_img)
-                    write_video(registered_frames, fps, final_clip_path)
-                    
-                    st.session_state.clip_paths.append(final_clip_path)
-                    
-                    # Combine all clips with crossfades
-                    output_path = f"{st.session_state.run_id}_complete_video.mp4"
-                    chain_crossfade(st.session_state.clip_paths, output_path, 1.0)
-                    st.session_state.final_video_path = output_path
-                    
-                    st.session_state.step = 7
-                    st.experimental_rerun()
-                except Exception as e:
-                    st.error(f"Error generating final video: {e}")
-
-# Step 6: Additional Video Selection
-elif st.session_state.step == 6:
-    st.header(f"Step 6: Select Video for Segment {st.session_state.loop_count + 1}")
-    
-    # Add "Regenerate Videos" button
-    if st.button("🔄 Regenerate Videos", help="Generate new video options for this segment"):
-        if st.session_state.current_start_image_path and os.path.exists(st.session_state.current_start_image_path):
-            with st.spinner("Generating new video options..."):
-                try:
-                    st.session_state.video_attempts += 1
-                    attempt = st.session_state.video_attempts
-                    st.session_state.generated_videos = []
-                    # Updated video prompts for fixed camera
-                    user_video_prompt = "Static camera, fixed perspective. camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0"
-                    negative_prompt_text = "camera movement, pan, tilt, zoom, rotation, camera shake, unsteady camera"
-                    
-                    # Generate 2 videos
-                    for j in range(2):
-                        video_filename = f"video_{st.session_state.loop_count}_{attempt}_{j}.mp4"
-                        video_path = get_project_path(st.session_state.run_id, "video", video_filename)
-                        
-                        input_dict = {
-                            "prompt": user_video_prompt,
-                            "duration": CLIP_DURATION,
-                            "cfg_scale": 0,
-                            "start_image": open(st.session_state.current_start_image_path, "rb"),
-                            "aspect_ratio": "16:9",
-                            "negative_prompt": negative_prompt_text
-                        }
-                        
-                        video_output = replicate.run("kwaivgi/kling-v1.6-pro", input=input_dict)
-                        with open(video_path, "wb") as vid_file:
-                            vid_file.write(video_output.read())
-                        
-                        # Register frames
-                        frames, fps = extract_frames(video_path)
-                        ref_img = cv2.imread(st.session_state.current_start_image_path)
-                        registered_frames = register_clipB(frames, ref_img)
-                        write_video(registered_frames, fps, video_path)
-                        
-                        st.session_state.generated_videos.append(video_path)
-                    
-                    save_step_state(6)
-                    st.experimental_rerun()
-                except Exception as e:
-                    st.error(f"Error regenerating videos: {e}")
-    
-    # Check if files exist first
-    file_checks = check_files(st.session_state.generated_videos, details=True)
-    with st.expander("Show Video File Check Results"):
-        st.write("Video file check results:")
-        for file, exists, size, details in file_checks:
-            if exists:
-                st.success(f"✅ {os.path.basename(file)}: {size} bytes - {details}")
-            else:
-                st.error(f"❌ {os.path.basename(file)}: Not found")
-    
-    # Display valid videos
-    valid_videos = [f for f, exists, _, _ in file_checks if exists]
-    
-    if not valid_videos:
-        st.error("No valid videos found. Please try generating videos again.")
-        if st.button("Return to Step 5"):
-            st.session_state.step = 5
-            st.experimental_rerun()
-    else:
-        # Display the 2 generated videos side by side
-        cols = st.columns(len(valid_videos))
-        for i, video_path in enumerate(valid_videos):
-            with cols[i]:
-                try:
-                    # Display thumbnails first
-                    try:
-                        thumbnail = get_video_thumbnail(video_path)
-                        if thumbnail is not None:
-                            st.image(thumbnail, caption=f"Video {i+1} Thumbnail")
-                    except Exception as e:
-                        st.warning(f"Could not generate thumbnail: {e}")
-                    
-                    # Display video
-                    st.video(video_path)
-                    
-                    if st.button(f"Select Video {i+1}", key=f"select_video_segment_{i}"):
-                        st.session_state.clip_paths.append(video_path)
-                        st.success(f"Selected video {i+1}")
-                        
-                        # Extract the last frame, sharpen it for the next clip's start image
-                        with st.spinner("Processing last frame..."):
-                            cap = cv2.VideoCapture(video_path)
-                            total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                            cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames - 1)
-                            ret, frame = cap.read()
-                            cap.release()
-                            
-                            if ret:
-                                # Show the last frame
-                                st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), caption="Last Frame")
-                                
-                                # Sharpen the frame
-                                st.info("Upscaling last frame...")
-                                sharpened_last = sharpen_frame(frame)
-                                last_frame_filename = "last_frame.png"
-                                last_frame_path = get_project_path(st.session_state.run_id, "image", last_frame_filename)
-                                cv2.imwrite(last_frame_path, sharpened_last)
-                                st.session_state.current_start_image_path = last_frame_path
-                                
-                                # Show the sharpened frame
-                                st.image(cv2.cvtColor(sharpened_last, cv2.COLOR_BGR2RGB), caption="Sharpened Last Frame")
-                                st.success("Last frame processed successfully!")
-                            else:
-                                st.error("Could not read the last frame.")
-                        
-                        st.session_state.loop_count += 1
-                        st.session_state.step = 5  # Go back to continue/complete step
-                        st.button("Continue", on_click=lambda: st.experimental_rerun())
-                except Exception as e:
-                    st.error(f"Error processing video {video_path}: {e}")
-
-# Step 7: Final Video Duration and Download
-elif st.session_state.step == 7:
-    st.header("Step 7: Final Video Settings")
-    
-    if os.path.exists(st.session_state.final_video_path):
-        # Show original video
-        st.subheader("Original Combined Video")
-        st.video(st.session_state.final_video_path)
+    # Step 4: Initial Video Selection
+    elif st.session_state.step == 4:
+        st.header("Step 4: Select Initial Video")
         
-        # Calculate original duration
-        try:
-            info = ffmpeg.probe(st.session_state.final_video_path)
-            orig_duration = float(info['format']['duration'])
-            st.info(f"Original video duration: {orig_duration:.1f} seconds")
-            
-            # Allow user to customize final video duration
-            st.subheader("Customize Final Video")
-            
-            # Option to specify target duration in minutes
-            col1, col2 = st.columns(2)
-            with col1:
-                target_minutes = st.number_input("Target Duration (minutes)", 
-                                            min_value=1, 
-                                            max_value=60, 
-                                            value=5)
-            with col2:
-                loop_method = st.selectbox("Looping Method", 
-                                     options=["Auto-loop to reach duration", "Specify number of loops"])
-            
-            if loop_method == "Auto-loop to reach duration":
-                # Convert minutes to seconds
-                target_seconds = target_minutes * 60
-                # Calculate number of loops needed
-                num_loops_needed = max(1, int(np.ceil(target_seconds / orig_duration)))
-                st.write(f"Will loop video {num_loops_needed} times to reach approximately {target_minutes} minutes")
-                loops_to_use = num_loops_needed
-            else:
-                # Let user specify exact number of loops
-                loops_to_use = st.number_input("Number of loops", min_value=1, max_value=10, value=2)
-                estimated_duration = orig_duration * loops_to_use
-                st.write(f"Estimated final duration: {estimated_duration/60:.1f} minutes")
-            
-            # Audio options section
-            st.subheader("Add Audio to Your Video")
-            
-            # Check if classical music directory exists
-            if os.path.exists(CLASSICAL_DIR) and sum(len(cat) for cat in CLASSICAL_MUSIC.values()) > 0:
-                st.success(f"Found {sum(len(cat) for cat in CLASSICAL_MUSIC.values())} classical music tracks")
-                audio_type = st.selectbox("Audio Type", ["None", "Classical Music", "Upload Your Own"])
-            else:
-                st.warning("Classical music directory not found. You can still upload your own audio.")
-                audio_type = st.selectbox("Audio Type", ["None", "Upload Your Own"])
-            
-            audio_file_path = None
-            
-            if audio_type == "Classical Music":
-                # Display music categories
-                music_category = st.selectbox("Music Mood", list(CLASSICAL_MUSIC.keys()))
-                
-                # Display music options based on mood
-                if CLASSICAL_MUSIC[music_category]:
-                    music_options = CLASSICAL_MUSIC[music_category]
-                    selected_music = st.selectbox("Choose Classical Track", list(music_options.keys()))
-                    
-                    # Display selected track for playback
-                    music_file = music_options[selected_music]
-                    if music_file and os.path.exists(music_file):
-                        st.success(f"Selected: {selected_music}")
-                        st.audio(music_file)
-                        audio_file_path = music_file
-                    else:
-                        st.error(f"File not found: {music_file}")
+        # Add "Regenerate Videos" button
+        if st.button("🔄 Regenerate Videos", help="Generate new video options from the selected image"):
+            if st.session_state.upscaled_image_path and os.path.exists(st.session_state.upscaled_image_path):
+                with st.spinner(f"Generating new {st.session_state.clip_duration}s video options..."):
+                    try:
+                        st.session_state.video_attempts += 1
+                        attempt = st.session_state.video_attempts
+                        st.session_state.generated_videos = []
+                        # Updated video prompts for fixed camera + focus
+                        user_video_prompt = "Locked camera shot, fixed perspective, absolutely no camera movement. Maintain focus on the primary subject and keep a constant distance. camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0"
+                        negative_prompt_text = "camera movement, pan, tilt, zoom, rotation, camera shake, unsteady camera, focus shift, distance change"
+                        
+                        # Generate 2 videos
+                        for j in range(2):
+                            video_filename = f"video_{attempt}_{j}.mp4"
+                            video_path = get_project_path(st.session_state.run_id, "video", video_filename)
+                            
+                            input_dict = {
+                                "prompt": user_video_prompt,
+                                "duration": st.session_state.clip_duration, # Use selected duration
+                                "cfg_scale": 0,
+                                "start_image": open(st.session_state.upscaled_image_path, "rb"),
+                                "aspect_ratio": "16:9",
+                                "negative_prompt": negative_prompt_text
+                            }
+                            
+                            video_output = replicate.run("kwaivgi/kling-v1.6-pro", input=input_dict)
+                            with open(video_path, "wb") as vid_file:
+                                vid_file.write(video_output.read())
+                            
+                            st.session_state.generated_videos.append(video_path)
+                        
+                        save_step_state(4)
+                        save_session_to_file(st.session_state.run_id)
+                        st.experimental_rerun()
+                    except Exception as e:
+                        st.error(f"Error regenerating videos: {e}")
+        
+        # If we have the selected prompt, display it
+        if st.session_state.selected_prompt:
+            with st.expander("Show Optimized Prompt"):
+                st.text_area("Prompt Used", st.session_state.selected_prompt, height=150)
+        
+        # If we have the selected image, display it
+        if st.session_state.selected_image_path and os.path.exists(st.session_state.selected_image_path):
+            with st.expander("Show Selected Image"):
+                try:
+                    img = Image.open(st.session_state.selected_image_path)
+                    st.image(img, caption="Selected Image", width=300)
+                except Exception as e:
+                    st.error(f"Error displaying selected image: {e}")
+        
+        # Add debug info
+        st.write(f"Found {len(st.session_state.generated_videos)} generated videos")
+        if st.session_state.video_attempts > 0:
+            st.write(f"Video generation attempt: {st.session_state.video_attempts + 1}")
+        
+        # Check if files exist first
+        file_checks = check_files(st.session_state.generated_videos, details=True)
+        with st.expander("Show Video File Check Results"):
+            st.write("Video file check results:")
+            for file, exists, size, details in file_checks:
+                if exists:
+                    st.success(f"✅ {os.path.basename(file)}: {size} bytes - {details}")
                 else:
-                    st.warning(f"No tracks available for {music_category}")
-                    
-            elif audio_type == "Upload Your Own":
-                custom_audio = st.file_uploader("Upload Audio File (MP3, WAV)", type=["mp3", "wav"])
-                if custom_audio is not None:
-                    # Save uploaded file to disk
-                    temp_path = f"uploaded_{custom_audio.name}"
-                    with open(temp_path, "wb") as f:
-                        f.write(custom_audio.read())
-                    st.success("Audio uploaded successfully!")
-                    st.audio(temp_path)
-                    audio_file_path = temp_path
-            
-            if audio_type != "None":
-                # Show audio volume control
-                audio_volume = st.slider("Audio Volume", 0.1, 1.0, 0.5, 0.1)
-            
-            # Create final video button
-            if st.button("Create Final Video"):
-                video_with_audio = None
-                
-                with st.spinner(f"Creating final looped video..."):
-                    # Loop the video the specified number of times
-                    looped_output_path = f"{st.session_state.run_id}_looped_final.mp4"
-                    loop_video(st.session_state.final_video_path, looped_output_path, loops_to_use)
-                    
-                    # Check if audio should be added
-                    if audio_type != "None" and audio_file_path and os.path.exists(audio_file_path):
-                        with st.spinner("Adding audio to video..."):
-                            st.session_state.selected_audio_path = audio_file_path
-                            video_with_audio = f"{st.session_state.run_id}_final_with_audio.mp4"
-                            
-                            # Adjust audio volume if needed
-                            if audio_volume != 1.0:
-                                temp_audio = f"temp_adjusted_audio.mp3"
-                                os.system(f'ffmpeg -i "{audio_file_path}" -filter:a "volume={audio_volume}" -y "{temp_audio}"')
-                                audio_to_use = temp_audio
-                            else:
-                                audio_to_use = audio_file_path
-                            
-                            # Add audio to the looped video
-                            result = add_audio_to_video(looped_output_path, audio_to_use, video_with_audio, loop_audio=True)
-                            
-                            # Clean up temp file
-                            if audio_volume != 1.0 and os.path.exists(temp_audio):
-                                os.remove(temp_audio)
-                            
-                            if result:
-                                st.session_state.final_video_path = video_with_audio
-                                st.session_state.audio_added = True
-                            else:
-                                st.error("Failed to add audio to video. Using video without audio.")
-                                st.session_state.final_video_path = looped_output_path
-                    else:
-                        st.session_state.final_video_path = looped_output_path
-                    
-                    st.success(f"🎉 Your ambience video is ready! It's been looped {loops_to_use} times.")
-                    
-                    # Display final video
-                    st.subheader("Final Video")
-                    st.video(st.session_state.final_video_path)
-                    
-                    # Create download link
-                    with open(st.session_state.final_video_path, "rb") as file:
-                        btn = st.download_button(
-                            label="Download Video",
-                            data=file,
-                            file_name=f"ambience_{st.session_state.run_id}{'.with_audio' if st.session_state.audio_added else ''}.mp4",
-                            mime="video/mp4"
-                        )
-        except Exception as e:
-            st.error(f"Error processing video: {e}")
-            # Fallback to simple looping
-            if st.button("Create Final Video (Simple Mode)"):
-                with st.spinner(f"Creating looped video..."):
-                    looped_output_path = f"{st.session_state.run_id}_looped_final.mp4"
-                    loop_video(st.session_state.final_video_path, looped_output_path, NUM_LOOPS)
-                    st.session_state.final_video_path = looped_output_path
-                    
-                    st.success(f"🎉 Your ambience video is ready!")
-                    st.video(looped_output_path)
-                    
-                    with open(looped_output_path, "rb") as file:
-                        btn = st.download_button(
-                            label="Download Video",
-                            data=file,
-                            file_name=f"ambience_{st.session_state.run_id}.mp4",
-                            mime="video/mp4"
-                        )
-    else:
-        st.error(f"Final video file {st.session_state.final_video_path} not found")
-    
-    if st.button("Start Over"):
-        # Reset all session state
-        for key in list(st.session_state.keys()):
-            if key != 'step':
-                st.session_state[key] = None if key not in ['run_id', 'prompt', 'optimized_prompts', 
-                                                           'generated_images', 'generated_videos', 
-                                                           'clip_paths', 'loop_count', 'target_duration'] else (
-                    str(uuid.uuid4())[:8] if key == 'run_id' else (
-                        "" if key == 'prompt' else (
-                            [] if key in ['optimized_prompts', 'generated_images', 'generated_videos', 'clip_paths'] else (
-                                1 if key == 'loop_count' else 30))))
-        st.session_state.step = 1
-        st.experimental_rerun()
-
-st.sidebar.markdown("## Ambience Video Creator")
-st.sidebar.markdown(f"Current step: {st.session_state.step if st.session_state.step < 3 else st.session_state.step-1}/6")
-progress = st.sidebar.progress((st.session_state.step if st.session_state.step < 3 else st.session_state.step-1) / 6)
-
-# Display current workflow stage in the sidebar
-workflow_stages = [
-    "Enter Scene Description & Generate Images",
-    "Select Generated Image",
-    "Select Initial Video",
-    "Continue or Complete Loop",
-    "Select Additional Videos",
-    "Final Video Settings & Audio"
-]
-
-st.sidebar.markdown("### Workflow Stages")
-for i, stage in enumerate(workflow_stages):
-    display_step = i + 1
-    current_step = st.session_state.step if st.session_state.step < 3 else st.session_state.step - 1
-    
-    if display_step < current_step:
-        st.sidebar.markdown(f"✅ {display_step}. {stage}")
-    elif display_step == current_step:
-        st.sidebar.markdown(f"🔄 {display_step}. {stage}")
-    else:
-        st.sidebar.markdown(f"⏳ {display_step}. {stage}")
-
-# Display audio information if it's added
-if 'audio_added' in st.session_state and st.session_state.audio_added:
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### 🎵 Audio Added")
-    if 'selected_audio_path' in st.session_state and st.session_state.selected_audio_path:
-        audio_name = os.path.basename(st.session_state.selected_audio_path)
-        st.sidebar.write(f"Track: {audio_name}")
-
-# Define step formatting constants
-completed_step = "✅ "
-current_step = "🔄 "
-
-# Sidebar for workflow tracking
-with st.sidebar:
-    st.header("Workflow Steps")
-    
-    # Check if any steps are completed
-    if st.session_state.step >= 1:
-        st.markdown(completed_step if st.session_state.step > 1 else current_step + " Enter Scene Description & Generate Images")
-    if st.session_state.step >= 3:
-        st.markdown(completed_step if st.session_state.step > 3 else current_step + " Select an Image")
-    if st.session_state.step >= 4:
-        st.markdown(completed_step if st.session_state.step > 4 else current_step + " Select Initial Video")
-    if st.session_state.step >= 5:
-        st.markdown(completed_step if st.session_state.step > 5 else current_step + " Select Final Video")
-    if st.session_state.step >= 6:
-        st.markdown(completed_step if st.session_state.step > 6 else current_step + " Choose Video Length")
-    if st.session_state.step >= 7:
-        st.markdown(completed_step if st.session_state.step > 7 else current_step + " Final Video Settings & Audio")
-    
-    # Creation history section
-    st.markdown("---")
-    st.header("Creation History")
-    
-    for step, attempts in st.session_state.history.items():
-        step_name = {
-            1: "Description",
-            3: "Images",
-            4: "Initial Videos",
-            6: "Additional Videos"
-        }.get(step, f"Step {step}")
+                    st.error(f"❌ {os.path.basename(file)}: Not found")
         
-        st.markdown(f"**{step_name}**: {len(attempts)} attempts")
+        # Display valid videos
+        valid_videos = [f for f, exists, _, _ in file_checks if exists]
+        
+        if not valid_videos:
+            st.error("No valid videos found. Please try generating videos again.")
+            if st.button("Return to Step 3"):
+                st.session_state.step = 3
+                st.experimental_rerun()
+        else:
+            st.write("Please select one of the videos below:")
+            
+            # Display the valid videos side by side
+            cols = st.columns(len(valid_videos))
+            for i, video_path in enumerate(valid_videos):
+                with cols[i]:
+                    try:
+                        # Display thumbnails first
+                        try:
+                            thumbnail = get_video_thumbnail(video_path)
+                            if thumbnail is not None:
+                                st.image(thumbnail, caption=f"Video {i+1} Thumbnail")
+                        except Exception as e:
+                            st.warning(f"Could not generate thumbnail: {e}")
+                        
+                        # Display video
+                        st.video(video_path)
+                        
+                        if st.button(f"Select Video {i+1}", key=f"select_video_{i}"):
+                            st.session_state.clip_paths.append(video_path)
+                            st.success(f"Selected video {i+1}")
+                            
+                            # Extract the last frame, sharpen it for the next clip's start image
+                            with st.spinner("Processing last frame..."):
+                                cap = cv2.VideoCapture(video_path)
+                                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                                cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames - 1)
+                                ret, frame = cap.read()
+                                cap.release()
+                                
+                                if ret:
+                                    # Show the last frame
+                                    st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), caption="Last Frame")
+                                    
+                                    # Sharpen the frame
+                                    st.info("Upscaling last frame...")
+                                    sharpened_last = sharpen_frame(frame)
+                                    last_frame_filename = "last_frame.png"
+                                    last_frame_path = get_project_path(st.session_state.run_id, "image", last_frame_filename)
+                                    cv2.imwrite(last_frame_path, sharpened_last)
+                                    st.session_state.current_start_image_path = last_frame_path
+                                    
+                                    # Show the sharpened frame
+                                    st.image(cv2.cvtColor(sharpened_last, cv2.COLOR_BGR2RGB), caption="Sharpened Last Frame")
+                                    st.success("Last frame processed successfully!")
+                                else:
+                                    st.error("Could not read the last frame.")
+                            
+                            # For minimal test, go directly to step 5
+                            st.info("Moving to next step...")
+                            st.session_state.step = 5
+                            save_session_to_file(st.session_state.run_id) # Save state before moving
+                            st.experimental_rerun()
+                    except Exception as e:
+                        st.error(f"Error processing video {video_path}: {e}")
 
-# Reset session state function
-def reset_session_state():
-    for key in list(st.session_state.keys()):
-        if key != 'step':
-            st.session_state[key] = None if key not in ['run_id', 'prompt', 'optimized_prompts', 
-                                                       'generated_images', 'generated_videos', 
-                                                       'clip_paths', 'loop_count', 'target_duration'] else (
-                str(uuid.uuid4())[:8] if key == 'run_id' else (
-                    "" if key == 'prompt' else (
-                        [] if key in ['optimized_prompts', 'generated_images', 'generated_videos', 'clip_paths'] else (
-                            1 if key == 'loop_count' else 30))))
-    # Create project folders for new run_id
-    create_project_folder(st.session_state.run_id)
-    # Reset history
-    st.session_state.history = {}
-    # Reset step counter
-    st.session_state.step = 1
-    st.experimental_rerun() 
+    # Step 5: Continue or Complete
+    elif st.session_state.step == 5:
+        st.header("Step 5: Continue or Complete")
+        
+        # Add "Regenerate Videos" button
+        if st.button("🔄 Regenerate Videos", help="Generate new video options from the selected image"):
+            if st.session_state.upscaled_image_path and os.path.exists(st.session_state.upscaled_image_path):
+                with st.spinner(f"Generating new {st.session_state.clip_duration}s video options..."):
+                    try:
+                        st.session_state.video_attempts += 1
+                        attempt = st.session_state.video_attempts
+                        st.session_state.generated_videos = []
+                        # Updated video prompts for fixed camera + focus
+                        user_video_prompt = "Locked camera shot, fixed perspective, absolutely no camera movement. Maintain focus on the primary subject and keep a constant distance. camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0"
+                        negative_prompt_text = "camera movement, pan, tilt, zoom, rotation, camera shake, unsteady camera, focus shift, distance change"
+                        
+                        # Generate 2 videos
+                        for j in range(2):
+                            video_filename = f"video_{attempt}_{j}.mp4"
+                            video_path = get_project_path(st.session_state.run_id, "video", video_filename)
+                            
+                            input_dict = {
+                                "prompt": user_video_prompt,
+                                "duration": st.session_state.clip_duration, # Use selected duration
+                                "cfg_scale": 0,
+                                "start_image": open(st.session_state.upscaled_image_path, "rb"),
+                                "aspect_ratio": "16:9",
+                                "negative_prompt": negative_prompt_text
+                            }
+                            
+                            video_output = replicate.run("kwaivgi/kling-v1.6-pro", input=input_dict)
+                            with open(video_path, "wb") as vid_file:
+                                vid_file.write(video_output.read())
+                            
+                            st.session_state.generated_videos.append(video_path)
+                        
+                        save_step_state(5)
+                        save_session_to_file(st.session_state.run_id)
+                        st.experimental_rerun()
+                    except Exception as e:
+                        st.error(f"Error regenerating videos: {e}")
+        
+        # If we have the selected prompt, display it
+        if st.session_state.selected_prompt:
+            with st.expander("Show Optimized Prompt"):
+                st.text_area("Prompt Used", st.session_state.selected_prompt, height=150)
+        
+        # If we have the selected image, display it
+        if st.session_state.selected_image_path and os.path.exists(st.session_state.selected_image_path):
+            with st.expander("Show Selected Image"):
+                try:
+                    img = Image.open(st.session_state.selected_image_path)
+                    st.image(img, caption="Selected Image", width=300)
+                except Exception as e:
+                    st.error(f"Error displaying selected image: {e}")
+        
+        # Add debug info
+        st.write(f"Found {len(st.session_state.generated_videos)} generated videos")
+        if st.session_state.video_attempts > 0:
+            st.write(f"Video generation attempt: {st.session_state.video_attempts + 1}")
+        
+        # Check if files exist first
+        file_checks = check_files(st.session_state.generated_videos, details=True)
+        with st.expander("Show Video File Check Results"):
+            st.write("Video file check results:")
+            for file, exists, size, details in file_checks:
+                if exists:
+                    st.success(f"✅ {os.path.basename(file)}: {size} bytes - {details}")
+                else:
+                    st.error(f"❌ {os.path.basename(file)}: Not found")
+        
+        # Display valid videos
+        valid_videos = [f for f, exists, _, _ in file_checks if exists]
+        
+        if not valid_videos:
+            st.error("No valid videos found. Please try generating videos again.")
+            if st.button("Return to Step 4"):
+                st.session_state.step = 4
+                st.experimental_rerun()
+        else:
+            st.write("Please select one of the videos below:")
+            
+            # Display the valid videos side by side
+            cols = st.columns(len(valid_videos))
+            for i, video_path in enumerate(valid_videos):
+                with cols[i]:
+                    try:
+                        # Display thumbnails first
+                        try:
+                            thumbnail = get_video_thumbnail(video_path)
+                            if thumbnail is not None:
+                                st.image(thumbnail, caption=f"Video {i+1} Thumbnail")
+                        except Exception as e:
+                            st.warning(f"Could not generate thumbnail: {e}")
+                        
+                        # Display video
+                        st.video(video_path)
+                        
+                        if st.button(f"Select Video {i+1}", key=f"select_video_{i}"):
+                            st.session_state.clip_paths.append(video_path)
+                            st.success(f"Selected video {i+1}")
+                            
+                            # Extract the last frame, sharpen it for the next clip's start image
+                            with st.spinner("Processing last frame..."):
+                                cap = cv2.VideoCapture(video_path)
+                                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                                cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames - 1)
+                                ret, frame = cap.read()
+                                cap.release()
+                                
+                                if ret:
+                                    # Show the last frame
+                                    st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), caption="Last Frame")
+                                    
+                                    # Sharpen the frame
+                                    st.info("Upscaling last frame...")
+                                    sharpened_last = sharpen_frame(frame)
+                                    last_frame_filename = "last_frame.png"
+                                    last_frame_path = get_project_path(st.session_state.run_id, "image", last_frame_filename)
+                                    cv2.imwrite(last_frame_path, sharpened_last)
+                                    st.session_state.current_start_image_path = last_frame_path
+                                    
+                                    # Show the sharpened frame
+                                    st.image(cv2.cvtColor(sharpened_last, cv2.COLOR_BGR2RGB), caption="Sharpened Last Frame")
+                                    st.success("Last frame processed successfully!")
+                                else:
+                                    st.error("Could not read the last frame.")
+                            
+                            # For minimal test, go directly to step 5
+                            st.info("Moving to next step...")
+                            st.session_state.step = 5
+                            save_session_to_file(st.session_state.run_id) # Save state before moving
+                            st.experimental_rerun()
+                    except Exception as e:
+                        st.error(f"Error processing video {video_path}: {e}")
+
+    # Step 6: Additional Videos
+    elif st.session_state.step == 6:
+        st.header("Step 6: Additional Videos")
+        
+        # Add "Regenerate Videos" button
+        if st.button("🔄 Regenerate Videos", help="Generate new video options from the selected image"):
+            if st.session_state.upscaled_image_path and os.path.exists(st.session_state.upscaled_image_path):
+                with st.spinner(f"Generating new {st.session_state.clip_duration}s video options..."):
+                    try:
+                        st.session_state.video_attempts += 1
+                        attempt = st.session_state.video_attempts
+                        st.session_state.generated_videos = []
+                        # Updated video prompts for fixed camera + focus
+                        user_video_prompt = "Locked camera shot, fixed perspective, absolutely no camera movement. Maintain focus on the primary subject and keep a constant distance. camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0"
+                        negative_prompt_text = "camera movement, pan, tilt, zoom, rotation, camera shake, unsteady camera, focus shift, distance change"
+                        
+                        # Generate 2 videos
+                        for j in range(2):
+                            video_filename = f"video_{attempt}_{j}.mp4"
+                            video_path = get_project_path(st.session_state.run_id, "video", video_filename)
+                            
+                            input_dict = {
+                                "prompt": user_video_prompt,
+                                "duration": st.session_state.clip_duration, # Use selected duration
+                                "cfg_scale": 0,
+                                "start_image": open(st.session_state.upscaled_image_path, "rb"),
+                                "aspect_ratio": "16:9",
+                                "negative_prompt": negative_prompt_text
+                            }
+                            
+                            video_output = replicate.run("kwaivgi/kling-v1.6-pro", input=input_dict)
+                            with open(video_path, "wb") as vid_file:
+                                vid_file.write(video_output.read())
+                            
+                            st.session_state.generated_videos.append(video_path)
+                        
+                        save_step_state(6)
+                        save_session_to_file(st.session_state.run_id)
+                        st.experimental_rerun()
+                    except Exception as e:
+                        st.error(f"Error regenerating videos: {e}")
+        
+        # If we have the selected prompt, display it
+        if st.session_state.selected_prompt:
+            with st.expander("Show Optimized Prompt"):
+                st.text_area("Prompt Used", st.session_state.selected_prompt, height=150)
+        
+        # If we have the selected image, display it
+        if st.session_state.selected_image_path and os.path.exists(st.session_state.selected_image_path):
+            with st.expander("Show Selected Image"):
+                try:
+                    img = Image.open(st.session_state.selected_image_path)
+                    st.image(img, caption="Selected Image", width=300)
+                except Exception as e:
+                    st.error(f"Error displaying selected image: {e}")
+        
+        # Add debug info
+        st.write(f"Found {len(st.session_state.generated_videos)} generated videos")
+        if st.session_state.video_attempts > 0:
+            st.write(f"Video generation attempt: {st.session_state.video_attempts + 1}")
+        
+        # Check if files exist first
+        file_checks = check_files(st.session_state.generated_videos, details=True)
+        with st.expander("Show Video File Check Results"):
+            st.write("Video file check results:")
+            for file, exists, size, details in file_checks:
+                if exists:
+                    st.success(f"✅ {os.path.basename(file)}: {size} bytes - {details}")
+                else:
+                    st.error(f"❌ {os.path.basename(file)}: Not found")
+        
+        # Display valid videos
+        valid_videos = [f for f, exists, _, _ in file_checks if exists]
+        
+        if not valid_videos:
+            st.error("No valid videos found. Please try generating videos again.")
+            if st.button("Return to Step 5"):
+                st.session_state.step = 5
+                st.experimental_rerun()
+        else:
+            st.write("Please select one of the videos below:")
+            
+            # Display the valid videos side by side
+            cols = st.columns(len(valid_videos))
+            for i, video_path in enumerate(valid_videos):
+                with cols[i]:
+                    try:
+                        # Display thumbnails first
+                        try:
+                            thumbnail = get_video_thumbnail(video_path)
+                            if thumbnail is not None:
+                                st.image(thumbnail, caption=f"Video {i+1} Thumbnail")
+                        except Exception as e:
+                            st.warning(f"Could not generate thumbnail: {e}")
+                        
+                        # Display video
+                        st.video(video_path)
+                        
+                        if st.button(f"Select Video {i+1}", key=f"select_video_{i}"):
+                            st.session_state.clip_paths.append(video_path)
+                            st.success(f"Selected video {i+1}")
+                            
+                            # Extract the last frame, sharpen it for the next clip's start image
+                            with st.spinner("Processing last frame..."):
+                                cap = cv2.VideoCapture(video_path)
+                                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                                cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames - 1)
+                                ret, frame = cap.read()
+                                cap.release()
+                                
+                                if ret:
+                                    # Show the last frame
+                                    st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), caption="Last Frame")
+                                    
+                                    # Sharpen the frame
+                                    st.info("Upscaling last frame...")
+                                    sharpened_last = sharpen_frame(frame)
+                                    last_frame_filename = "last_frame.png"
+                                    last_frame_path = get_project_path(st.session_state.run_id, "image", last_frame_filename)
+                                    cv2.imwrite(last_frame_path, sharpened_last)
+                                    st.session_state.current_start_image_path = last_frame_path
+                                    
+                                    # Show the sharpened frame
+                                    st.image(cv2.cvtColor(sharpened_last, cv2.COLOR_BGR2RGB), caption="Sharpened Last Frame")
+                                    st.success("Last frame processed successfully!")
+                                else:
+                                    st.error("Could not read the last frame.")
+                            
+                            # For minimal test, go directly to step 5
+                            st.info("Moving to next step...")
+                            st.session_state.step = 5
+                            save_session_to_file(st.session_state.run_id) # Save state before moving
+                            st.experimental_rerun()
+                    except Exception as e:
+                        st.error(f"Error processing video {video_path}: {e}")
+
+    # Step 7: Final Settings
+    elif st.session_state.step == 7:
+        st.header("Step 7: Final Settings")
+        
+        # Add "Regenerate Videos" button
+        if st.button("🔄 Regenerate Videos", help="Generate new video options from the selected image"):
+            if st.session_state.upscaled_image_path and os.path.exists(st.session_state.upscaled_image_path):
+                with st.spinner(f"Generating new {st.session_state.clip_duration}s video options..."):
+                    try:
+                        st.session_state.video_attempts += 1
+                        attempt = st.session_state.video_attempts
+                        st.session_state.generated_videos = []
+                        # Updated video prompts for fixed camera + focus
+                        user_video_prompt = "Locked camera shot, fixed perspective, absolutely no camera movement. Maintain focus on the primary subject and keep a constant distance. camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0"
+                        negative_prompt_text = "camera movement, pan, tilt, zoom, rotation, camera shake, unsteady camera, focus shift, distance change"
+                        
+                        # Generate 2 videos
+                        for j in range(2):
+                            video_filename = f"video_{attempt}_{j}.mp4"
+                            video_path = get_project_path(st.session_state.run_id, "video", video_filename)
+                            
+                            input_dict = {
+                                "prompt": user_video_prompt,
+                                "duration": st.session_state.clip_duration, # Use selected duration
+                                "cfg_scale": 0,
+                                "start_image": open(st.session_state.upscaled_image_path, "rb"),
+                                "aspect_ratio": "16:9",
+                                "negative_prompt": negative_prompt_text
+                            }
+                            
+                            video_output = replicate.run("kwaivgi/kling-v1.6-pro", input=input_dict)
+                            with open(video_path, "wb") as vid_file:
+                                vid_file.write(video_output.read())
+                            
+                            st.session_state.generated_videos.append(video_path)
+                        
+                        save_step_state(7)
+                        save_session_to_file(st.session_state.run_id)
+                        st.experimental_rerun()
+                    except Exception as e:
+                        st.error(f"Error regenerating videos: {e}")
+        
+        # If we have the selected prompt, display it
+        if st.session_state.selected_prompt:
+            with st.expander("Show Optimized Prompt"):
+                st.text_area("Prompt Used", st.session_state.selected_prompt, height=150)
+        
+        # If we have the selected image, display it
+        if st.session_state.selected_image_path and os.path.exists(st.session_state.selected_image_path):
+            with st.expander("Show Selected Image"):
+                try:
+                    img = Image.open(st.session_state.selected_image_path)
+                    st.image(img, caption="Selected Image", width=300)
+                except Exception as e:
+                    st.error(f"Error displaying selected image: {e}")
+        
+        # Add debug info
+        st.write(f"Found {len(st.session_state.generated_videos)} generated videos")
+        if st.session_state.video_attempts > 0:
+            st.write(f"Video generation attempt: {st.session_state.video_attempts + 1}")
+        
+        # Check if files exist first
+        file_checks = check_files(st.session_state.generated_videos, details=True)
+        with st.expander("Show Video File Check Results"):
+            st.write("Video file check results:")
+            for file, exists, size, details in file_checks:
+                if exists:
+                    st.success(f"✅ {os.path.basename(file)}: {size} bytes - {details}")
+                else:
+                    st.error(f"❌ {os.path.basename(file)}: Not found")
+        
+        # Display valid videos
+        valid_videos = [f for f, exists, _, _ in file_checks if exists]
+        
+        if not valid_videos:
+            st.error("No valid videos found. Please try generating videos again.")
+            if st.button("Return to Step 6"):
+                st.session_state.step = 6
+                st.experimental_rerun()
+        else:
+            st.write("Please select one of the videos below:")
+            
+            # Display the valid videos side by side
+            cols = st.columns(len(valid_videos))
+            for i, video_path in enumerate(valid_videos):
+                with cols[i]:
+                    try:
+                        # Display thumbnails first
+                        try:
+                            thumbnail = get_video_thumbnail(video_path)
+                            if thumbnail is not None:
+                                st.image(thumbnail, caption=f"Video {i+1} Thumbnail")
+                        except Exception as e:
+                            st.warning(f"Could not generate thumbnail: {e}")
+                        
+                        # Display video
+                        st.video(video_path)
+                        
+                        if st.button(f"Select Video {i+1}", key=f"select_video_{i}"):
+                            st.session_state.clip_paths.append(video_path)
+                            st.success(f"Selected video {i+1}")
+                            
+                            # Extract the last frame, sharpen it for the next clip's start image
+                            with st.spinner("Processing last frame..."):
+                                cap = cv2.VideoCapture(video_path)
+                                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                                cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames - 1)
+                                ret, frame = cap.read()
+                                cap.release()
+                                
+                                if ret:
+                                    # Show the last frame
+                                    st.image(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB), caption="Last Frame")
+                                    
+                                    # Sharpen the frame
+                                    st.info("Upscaling last frame...")
+                                    sharpened_last = sharpen_frame(frame)
+                                    last_frame_filename = "last_frame.png"
+                                    last_frame_path = get_project_path(st.session_state.run_id, "image", last_frame_filename)
+                                    cv2.imwrite(last_frame_path, sharpened_last)
+                                    st.session_state.current_start_image_path = last_frame_path
+                                    
+                                    # Show the sharpened frame
+                                    st.image(cv2.cvtColor(sharpened_last, cv2.COLOR_BGR2RGB), caption="Sharpened Last Frame")
+                                    st.success("Last frame processed successfully!")
+                                else:
+                                    st.error("Could not read the last frame.")
+                            
+                            # For minimal test, go directly to step 5
+                            st.info("Moving to next step...")
+                            st.session_state.step = 5
+                            save_session_to_file(st.session_state.run_id) # Save state before moving
+                            st.experimental_rerun()
+                    except Exception as e:
+                        st.error(f"Error processing video {video_path}: {e}")
