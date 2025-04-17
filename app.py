@@ -539,112 +539,129 @@ if st.session_state.step == 1:
     
     if st.button("Generate Images"):
         if prompt:
-            with st.spinner("Generating optimized prompt..."):
-                st.session_state.prompt = prompt
-                
-                # Generate single optimized prompt
-                optimized_prompt = generate_optimized_prompt(prompt)
-                
-                if optimized_prompt:
-                    # Store the optimized prompt
-                    st.session_state.selected_prompt = optimized_prompt
+            st.session_state.prompt = prompt
+            
+            # Create placeholders for image generation progress
+            st.write("Generating optimized prompts and images...")
+            progress_bar = st.progress(0)
+            
+            # Store all generated prompts
+            all_prompts = []
+            image_paths = []
+            
+            # Generate 4 different optimized prompts and corresponding images
+            try:
+                for j in range(4):
+                    # Update progress
+                    progress_bar.progress(j / 4 * 0.5)  # First half of progress is for prompts
+                    st.write(f"Generating optimized prompt {j+1}/4...")
                     
-                    # Save state before moving on
-                    save_step_state(1)
-                    
-                    # Display the generated prompt
-                    st.success("Optimized prompt generated!")
-                    st.text_area("Generated Prompt", optimized_prompt, height=200)
-                    
-                    # Generate images from this prompt
-                    with st.spinner("Generating images from the optimized prompt..."):
-                        try:
-                            image_paths = []
+                    # Generate a unique optimized prompt each time
+                    with st.spinner(f"Creating optimized prompt {j+1}..."):
+                        optimized_prompt = generate_optimized_prompt(prompt)
+                        
+                        if optimized_prompt:
+                            all_prompts.append(optimized_prompt)
                             
-                            # Create placeholders for image generation progress
-                            st.write("Generating images...")
-                            progress_bar = st.progress(0)
+                            # Show the generated prompt in an expander
+                            with st.expander(f"Optimized Prompt {j+1}"):
+                                st.text_area(f"Prompt {j+1}", optimized_prompt, height=150)
                             
-                            # Generate 4 images using the same prompt
-                            for j in range(4):
-                                progress_bar.progress((j) / 4)
-                                st.write(f"Generating image {j+1}/4...")
-                                
-                                image_output = replicate.run(
-                                    "google/imagen-3",
-                                    input={
-                                        "prompt": optimized_prompt,
-                                        "aspect_ratio": "16:9",
-                                        "negative_prompt": "fast movement",
-                                        "safety_filter_level": "block_medium_and_above"
-                                    }
-                                )
-                                
-                                # Save the image to project folder
-                                image_filename = f"image_{j}.png"
-                                image_path = get_project_path(st.session_state.run_id, "image", image_filename)
-                                
-                                with open(image_path, "wb") as img_file:
-                                    img_file.write(image_output.read())
-                                
-                                # Verify the image was saved correctly
-                                if os.path.exists(image_path) and os.path.getsize(image_path) > 0:
-                                    st.success(f"Image {j+1} generated successfully!")
-                                    # Display a thumbnail of the image
-                                    try:
-                                        img = Image.open(image_path)
-                                        st.image(img, caption=f"Image {j+1}", width=300)
-                                    except Exception as e:
-                                        st.error(f"Error displaying thumbnail: {e}")
-                                else:
-                                    st.error(f"Failed to save image {j+1}")
-                                
-                                image_paths.append(image_path)
+                            # Generate an image from this specific prompt
+                            st.write(f"Generating image {j+1} from prompt {j+1}...")
+                            progress_bar.progress(j / 4 * 0.5 + 0.125)  # Update progress
                             
-                            progress_bar.progress(1.0)
+                            image_output = replicate.run(
+                                "google/imagen-3",
+                                input={
+                                    "prompt": optimized_prompt,
+                                    "aspect_ratio": "16:9",
+                                    "negative_prompt": "fast movement",
+                                    "safety_filter_level": "block_medium_and_above"
+                                }
+                            )
                             
-                            # Update session state with generated images
-                            st.session_state.generated_images = image_paths
+                            # Save the image to project folder
+                            image_filename = f"image_{j}.png"
+                            image_path = get_project_path(st.session_state.run_id, "image", image_filename)
                             
-                            # Save state after generating images
-                            save_step_state(3)
+                            with open(image_path, "wb") as img_file:
+                                img_file.write(image_output.read())
                             
-                            # Count valid images
-                            valid_images = [p for p in image_paths if os.path.exists(p) and os.path.getsize(p) > 0]
-                            if len(valid_images) > 0:
-                                st.success(f"Generated {len(valid_images)} images successfully!")
-                                # Skip step 2 and go directly to step 3 (image selection)
-                                st.session_state.step = 3
-                                st.button("Proceed to Image Selection", on_click=lambda: st.experimental_rerun())
+                            # Verify the image was saved correctly
+                            if os.path.exists(image_path) and os.path.getsize(image_path) > 0:
+                                st.success(f"Image {j+1} generated successfully!")
+                                # Display a thumbnail of the image
+                                try:
+                                    img = Image.open(image_path)
+                                    st.image(img, caption=f"Image {j+1} (from Prompt {j+1})", width=300)
+                                except Exception as e:
+                                    st.error(f"Error displaying thumbnail: {e}")
                             else:
-                                st.error("No valid images were generated. Please try again.")
-                        except Exception as e:
-                            st.error(f"Error generating images: {e}")
-                            st.error(f"Exception details: {str(e)}")
+                                st.error(f"Failed to save image {j+1}")
+                            
+                            # Store the image path
+                            image_paths.append(image_path)
+                        else:
+                            st.error(f"Failed to generate prompt {j+1}. Skipping this iteration.")
+                
+                progress_bar.progress(1.0)
+                
+                # Store all generated prompts and images in session state
+                st.session_state.optimized_prompts = all_prompts
+                st.session_state.generated_images = image_paths
+                
+                # Save state after generating images
+                save_step_state(1)
+                save_step_state(3)
+                
+                # Count valid images
+                valid_images = [p for p in image_paths if os.path.exists(p) and os.path.getsize(p) > 0]
+                if len(valid_images) > 0:
+                    st.success(f"Generated {len(valid_images)} images from {len(all_prompts)} unique prompts!")
+                    # Skip step 2 and go directly to step 3 (image selection)
+                    st.session_state.step = 3
+                    st.button("Proceed to Image Selection", on_click=lambda: st.experimental_rerun())
                 else:
-                    st.error("Failed to generate prompt. Please try again.")
+                    st.error("No valid images were generated. Please try again.")
+            except Exception as e:
+                st.error(f"Error in prompt generation process: {e}")
+                st.error(f"Exception details: {str(e)}")
 
 # Step 3: Image selection
 elif st.session_state.step == 3:
     st.header("Step 3: Select an Image")
     
     # Add "Regenerate Images" button
-    if st.button("🔄 Regenerate Images", help="Generate new images using the same prompt"):
-        if st.session_state.selected_prompt:
-            with st.spinner("Generating new images..."):
-                try:
-                    image_paths = []
-                    progress_bar = st.progress(0)
+    if st.button("🔄 Regenerate Images", help="Generate new optimized prompts and images"):
+        if st.session_state.prompt:
+            st.write("Generating new optimized prompts and images...")
+            progress_bar = st.progress(0)
+            
+            try:
+                # Store all generated prompts
+                all_prompts = []
+                image_paths = []
+                attempt = len(st.session_state.history.get(3, [])) + 1
+                
+                # Generate 4 different optimized prompts and corresponding images
+                for j in range(4):
+                    # Update progress
+                    progress_bar.progress(j / 4 * 0.5)  # First half of progress is for prompts
                     
-                    # Generate 4 new images using the same prompt
-                    for j in range(4):
-                        progress_bar.progress((j) / 4)
-                        st.write(f"Generating image {j+1}/4...")
+                    # Generate a unique optimized prompt each time
+                    optimized_prompt = generate_optimized_prompt(st.session_state.prompt)
+                    
+                    if optimized_prompt:
+                        all_prompts.append(optimized_prompt)
+                        
+                        # Generate an image from this specific prompt
+                        progress_bar.progress(j / 4 * 0.5 + 0.125)  # Update progress
                         
                         image_output = replicate.run(
                             "google/imagen-3",
                             input={
-                                "prompt": st.session_state.selected_prompt,
+                                "prompt": optimized_prompt,
                                 "aspect_ratio": "16:9",
                                 "negative_prompt": "fast movement",
                                 "safety_filter_level": "block_medium_and_above"
@@ -652,26 +669,33 @@ elif st.session_state.step == 3:
                         )
                         
                         # Save the image to project folder with attempt number
-                        attempt = len(st.session_state.history.get(3, [])) + 1
                         image_filename = f"image_{attempt}_{j}.png"
                         image_path = get_project_path(st.session_state.run_id, "image", image_filename)
                         
                         with open(image_path, "wb") as img_file:
                             img_file.write(image_output.read())
                         
+                        # Store the image path
                         image_paths.append(image_path)
-                    
-                    progress_bar.progress(1.0)
-                    st.session_state.generated_images = image_paths
-                    save_step_state(3)
-                    st.experimental_rerun()
-                except Exception as e:
-                    st.error(f"Error regenerating images: {e}")
+                
+                progress_bar.progress(1.0)
+                
+                # Store all generated prompts and images in session state
+                st.session_state.optimized_prompts = all_prompts
+                st.session_state.generated_images = image_paths
+                
+                # Save state after generating images
+                save_step_state(3)
+                st.experimental_rerun()
+            except Exception as e:
+                st.error(f"Error regenerating images: {e}")
     
-    # If we have the optimized prompt, display it
-    if st.session_state.selected_prompt:
-        with st.expander("Show Optimized Prompt"):
-            st.text_area("Prompt Used", st.session_state.selected_prompt, height=150)
+    # If we have the optimized prompts, display them
+    if st.session_state.optimized_prompts:
+        with st.expander("Show Optimized Prompts"):
+            for i, opt_prompt in enumerate(st.session_state.optimized_prompts):
+                if i < len(st.session_state.optimized_prompts):
+                    st.text_area(f"Prompt {i+1}", opt_prompt, height=100)
     
     # Add debug info
     st.write(f"Found {len(st.session_state.generated_images)} generated images")
@@ -703,7 +727,8 @@ elif st.session_state.step == 3:
                     # Try to load with PIL first to verify the image is valid
                     try:
                         img = Image.open(image_path)
-                        st.image(img, caption=f"Option {i+1}")
+                        prompt_index = i if i < len(st.session_state.optimized_prompts) else 0
+                        st.image(img, caption=f"Option {i+1} (Prompt {prompt_index+1})")
                     except Exception as e:
                         st.error(f"Error loading image with PIL: {e}")
                         # Fallback to direct file path
@@ -711,62 +736,70 @@ elif st.session_state.step == 3:
                     
                     if st.button(f"Select Image {i+1}"):
                         st.session_state.selected_image_path = image_path
+                        # Store the corresponding prompt
+                        prompt_index = i if i < len(st.session_state.optimized_prompts) else 0
+                        st.session_state.selected_prompt = st.session_state.optimized_prompts[prompt_index]
                         
-                        # Upscale the selected image
-                        with st.spinner("Upscaling your selected image..."):
-                            img = cv2.imread(image_path)
-                            if img is None:
-                                st.error(f"OpenCV could not read image {image_path}")
-                                # Try with PIL and convert to CV2
-                                pil_img = Image.open(image_path)
-                                img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
-                            
-                            upscaled_img = sharpen_frame(img)
-                            upscaled_filename = "upscaled_image.png"
-                            upscaled_path = get_project_path(st.session_state.run_id, "image", upscaled_filename)
-                            cv2.imwrite(upscaled_path, upscaled_img)
-                            st.session_state.upscaled_image_path = upscaled_path
-                            st.session_state.current_start_image_path = upscaled_path
-                            
-                            # Show upscaled image
-                            st.success(f"Image upscaled successfully!")
-                            st.image(upscaled_path, caption="Upscaled Image")
-                        
-                        # Generate 2 video options with shorter duration
-                        with st.spinner("Generating initial video options..."):
-                            st.session_state.generated_videos = []
-                            user_video_prompt = "camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0, camera-fixed-position:True"
-                            
-                            try:
-                                # Generate 2 videos
-                                for j in range(2):
-                                    video_filename = f"video_0_{j}.mp4"
-                                    video_path = get_project_path(st.session_state.run_id, "video", video_filename)
-                                    
-                                    input_dict = {
-                                        "prompt": user_video_prompt,
-                                        "duration": CLIP_DURATION,  # Use global variable
-                                        "cfg_scale": 0,
-                                        "start_image": open(upscaled_path, "rb"),
-                                        "aspect_ratio": "16:9",
-                                        "negative_prompt": ""
-                                    }
-                                    
-                                    video_output = replicate.run("kwaivgi/kling-v1.6-pro", input=input_dict)
-                                    with open(video_path, "wb") as vid_file:
-                                        vid_file.write(video_output.read())
-                                    
-                                    st.session_state.generated_videos.append(video_path)
+                        try:
+                            # Upscale the selected image
+                            with st.spinner("Upscaling your selected image..."):
+                                img = cv2.imread(image_path)
+                                if img is None:
+                                    st.error(f"OpenCV could not read image {image_path}")
+                                    # Try with PIL and convert to CV2
+                                    pil_img = Image.open(image_path)
+                                    img = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
                                 
-                                st.success(f"Generated {len(st.session_state.generated_videos)} videos")
-                                # Save state before advancing
-                                save_step_state(4)
-                                # Reset video attempt counter
-                                st.session_state.video_attempts = 0
-                                st.session_state.step = 4
-                                st.experimental_rerun()
-                            except Exception as e:
-                                st.error(f"Error generating videos: {e}")
+                                upscaled_img = sharpen_frame(img)
+                                upscaled_filename = "upscaled_image.png"
+                                upscaled_path = get_project_path(st.session_state.run_id, "image", upscaled_filename)
+                                cv2.imwrite(upscaled_path, upscaled_img)
+                                st.session_state.upscaled_image_path = upscaled_path
+                                st.session_state.current_start_image_path = upscaled_path
+                                
+                                # Show upscaled image
+                                st.success(f"Image upscaled successfully!")
+                                st.image(upscaled_path, caption="Upscaled Image")
+                            
+                            # Generate 2 video options with shorter duration
+                            with st.spinner("Generating initial video options..."):
+                                st.session_state.generated_videos = []
+                                # Updated video prompts for fixed camera
+                                user_video_prompt = "Static camera, fixed perspective. camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0"
+                                negative_prompt_text = "camera movement, pan, tilt, zoom, rotation, camera shake, unsteady camera"
+                                
+                                try:
+                                    # Generate 2 videos
+                                    for j in range(2):
+                                        video_filename = f"video_0_{j}.mp4"
+                                        video_path = get_project_path(st.session_state.run_id, "video", video_filename)
+                                        
+                                        input_dict = {
+                                            "prompt": user_video_prompt,
+                                            "duration": CLIP_DURATION,  # Use global variable
+                                            "cfg_scale": 0,
+                                            "start_image": open(upscaled_path, "rb"),
+                                            "aspect_ratio": "16:9",
+                                            "negative_prompt": negative_prompt_text
+                                        }
+                                        
+                                        video_output = replicate.run("kwaivgi/kling-v1.6-pro", input=input_dict)
+                                        with open(video_path, "wb") as vid_file:
+                                            vid_file.write(video_output.read())
+                                        
+                                        st.session_state.generated_videos.append(video_path)
+                                    
+                                    st.success(f"Generated {len(st.session_state.generated_videos)} videos")
+                                    # Save state before advancing
+                                    save_step_state(4)
+                                    # Reset video attempt counter
+                                    st.session_state.video_attempts = 0
+                                    st.session_state.step = 4
+                                    st.experimental_rerun()
+                                except Exception as e:
+                                    st.error(f"Error in video generation process: {e}")
+                        except Exception as e:
+                            st.error(f"Error in video generation process: {e}")
                 except Exception as e:
                     st.error(f"Error processing image {image_path}: {e}")
 
@@ -782,7 +815,9 @@ elif st.session_state.step == 4:
                     st.session_state.video_attempts += 1
                     attempt = st.session_state.video_attempts
                     st.session_state.generated_videos = []
-                    user_video_prompt = "camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0, camera-fixed-position:True"
+                    # Updated video prompts for fixed camera
+                    user_video_prompt = "Static camera, fixed perspective. camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0"
+                    negative_prompt_text = "camera movement, pan, tilt, zoom, rotation, camera shake, unsteady camera"
                     
                     # Generate 2 videos
                     for j in range(2):
@@ -795,7 +830,7 @@ elif st.session_state.step == 4:
                             "cfg_scale": 0,
                             "start_image": open(st.session_state.upscaled_image_path, "rb"),
                             "aspect_ratio": "16:9",
-                            "negative_prompt": ""
+                            "negative_prompt": negative_prompt_text
                         }
                         
                         video_output = replicate.run("kwaivgi/kling-v1.6-pro", input=input_dict)
@@ -919,7 +954,9 @@ elif st.session_state.step == 5:
             # Generate 2 new video options using the last frame
             with st.spinner("Generating more video options..."):
                 st.session_state.generated_videos = []
-                user_video_prompt = "camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0, camera-fixed-position:True"
+                # Updated video prompts for fixed camera
+                user_video_prompt = "Static camera, fixed perspective. camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0"
+                negative_prompt_text = "camera movement, pan, tilt, zoom, rotation, camera shake, unsteady camera"
                 
                 try:
                     # Generate 2 videos
@@ -933,7 +970,7 @@ elif st.session_state.step == 5:
                             "cfg_scale": 0,
                             "start_image": open(st.session_state.current_start_image_path, "rb"),
                             "aspect_ratio": "16:9",
-                            "negative_prompt": ""
+                            "negative_prompt": negative_prompt_text
                         }
                         
                         video_output = replicate.run("kwaivgi/kling-v1.6-pro", input=input_dict)
@@ -958,14 +995,17 @@ elif st.session_state.step == 5:
             # Generate final video using the initial image as end point
             with st.spinner("Generating final loop closure video..."):
                 final_clip_path = f"{st.session_state.run_id}_final_clip.mp4"
+                # Updated video prompts for fixed camera
+                user_video_prompt = "Static camera, fixed perspective. camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0"
+                negative_prompt_text = "camera movement, pan, tilt, zoom, rotation, camera shake, unsteady camera"
                 
                 input_dict = {
-                    "prompt": "camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0, camera-fixed-position:True",
+                    "prompt": user_video_prompt,
                     "duration": CLIP_DURATION,
                     "cfg_scale": 0,
                     "start_image": open(st.session_state.current_start_image_path, "rb"),
                     "aspect_ratio": "16:9",
-                    "negative_prompt": "",
+                    "negative_prompt": negative_prompt_text,
                     "end_image": open(st.session_state.upscaled_image_path, "rb")
                 }
                 
@@ -1004,7 +1044,9 @@ elif st.session_state.step == 6:
                     st.session_state.video_attempts += 1
                     attempt = st.session_state.video_attempts
                     st.session_state.generated_videos = []
-                    user_video_prompt = "camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0, camera-fixed-position:True"
+                    # Updated video prompts for fixed camera
+                    user_video_prompt = "Static camera, fixed perspective. camera-tilt:0, camera-zoom:0, camera-pan:0, camera-rotate:0"
+                    negative_prompt_text = "camera movement, pan, tilt, zoom, rotation, camera shake, unsteady camera"
                     
                     # Generate 2 videos
                     for j in range(2):
@@ -1017,7 +1059,7 @@ elif st.session_state.step == 6:
                             "cfg_scale": 0,
                             "start_image": open(st.session_state.current_start_image_path, "rb"),
                             "aspect_ratio": "16:9",
-                            "negative_prompt": ""
+                            "negative_prompt": negative_prompt_text
                         }
                         
                         video_output = replicate.run("kwaivgi/kling-v1.6-pro", input=input_dict)
