@@ -276,6 +276,352 @@ def add_audio_to_video(video_path, audio_path, output_path, loop_audio=True):
 # Initialize the available classical music files
 CLASSICAL_MUSIC = find_matching_files()
 
+# --- Utility Functions --- #
+
+def extract_frames(video_path):
+    """Extracts all frames from a video file and returns (frames, fps)."""
+    cap = cv2.VideoCapture(video_path)
+    frames = []
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        frames.append(frame)
+    cap.release()
+    return frames, fps
+
+def write_video(frames, fps, output_path):
+    """Writes a list of frames to a video file."""
+    if not frames:
+        return
+    height, width, _ = frames[0].shape
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+    for frame in frames:
+        out.write(frame)
+    out.release()
+
+def register_clipB(clipB_frames, ref_frame):
+    """Aligns clipB's frames to the reference frame using ORB feature matching."""
+    orb = cv2.ORB_create(500)
+    kp1, des1 = orb.detectAndCompute(clipB_frames[0], None)
+    kp2, des2 = orb.detectAndCompute(ref_frame, None)
+    
+    bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+    matches = bf.match(des1, des2)
+    if len(matches) < 4:
+        print("Not enough matches; skipping registration for this clip.")
+        return clipB_frames
+    matches = sorted(matches, key=lambda m: m.distance)[:50]
+    pts1 = np.float32([kp1[m.queryIdx].pt for m in matches]).reshape(-1,1,2)
+    pts2 = np.float32([kp2[m.trainIdx].pt for m in matches]).reshape(-1,1,2)
+    
+    H, mask = cv2.findHomography(pts1, pts2, cv2.RANSAC, 5.0)
+    if H is None:
+        print("Homography computation failed; skipping registration.")
+        return clipB_frames
+    
+    h, w = ref_frame.shape[:2]
+    registered = []
+    for frame in clipB_frames:
+        warped = cv2.warpPerspective(frame, H, (w, h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
+        registered.append(warped)
+    return registered
+
+def chain_crossfade(clip_paths, output_path, fade_duration):
+    """Chains multiple video clips with crossfade transitions."""
+    if len(clip_paths) < 2:
+        st.warning("Need at least 2 clips to crossfade. Returning the single clip path.")
+        if clip_paths: # If there's exactly one clip
+            shutil.copy(clip_paths[0], output_path)
+            return output_path
+        else: # If no clips somehow
+            return None
+
+    inputs = []
+    durations = []
+    target_width, target_height = 1920, 1080
+
+    for path in clip_paths:
+        input_stream = ffmpeg.input(path)
+        # Ensure consistent scaling
+        scaled_stream = ffmpeg.filter(input_stream['v'], 'scale', w=target_width, h=target_height, force_original_aspect_ratio='decrease')
+        # Pad if necessary to ensure exact dimensions
+        padded_stream = ffmpeg.filter(scaled_stream, 'pad', w=target_width, h=target_height, x='(ow-iw)/2', y='(oh-ih)/2', color='black')
+        inputs.append(padded_stream)
+
+        try:
+            info = ffmpeg.probe(path)
+            durations.append(float(info['format']['duration']))
+        except ffmpeg.Error as e:
+            st.error(f"Error probing video {path}: {e.stderr.decode()}")
+            return None
+
+    out_stream = inputs[0]
+    current_duration = durations[0]
+
+    for i in range(1, len(inputs)):
+        out_stream = ffmpeg.filter(
+            [out_stream, inputs[i]],
+            'xfade',
+            transition='fade',
+            duration=fade_duration,
+            offset=current_duration - fade_duration
+        )
+        current_duration = current_duration + durations[i] - fade_duration
+
+    try:
+        (
+            ffmpeg
+            .output(out_stream, output_path, vcodec='libx264', acodec='aac', pix_fmt='yuv420p')
+            .overwrite_output()
+            .run(capture_stdout=True, capture_stderr=True)
+        )
+    except ffmpeg.Error as e:
+        st.error(f"Error during crossfade: {e.stderr.decode()}")
+        return None
+    return output_path
+
+def loop_video(input_path, output_path, num_loops=2):
+    """Loop a video a specified number of times."""
+    if num_loops <= 1:
+        # If only 1 loop requested, just copy the file
+        shutil.copy(input_path, output_path)
+        return output_path
+        
+    # Create a list of the input file path repeated num_loops times
+    loop_paths = [input_path] * num_loops
+    
+    # Use chain_crossfade to combine them
+    return chain_crossfade(loop_paths, output_path, 1.0) # Using 1 second crossfade
+
+def sharpen_frame(frame):
+    """Sharpens/upscales a frame using the Real-ESRGAN model."""
+    # Use tempfile for safer temporary file handling
+    # Enclose context managers in parentheses for multi-line with statement
+    with (tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_input_file,
+          tempfile.NamedTemporaryFile(suffix=".png", delete=False) as temp_output_file):
+        temp_input_path = temp_input_file.name
+        temp_output_path = temp_output_file.name
+
+    try:
+        cv2.imwrite(temp_input_path, frame)
+        with open(temp_input_path, "rb") as input_file:
+            input_data = {"image": input_file}
+            # Updated model reference
+            output = replicate.run("nightmareai/real-esrgan:42fed1c4974146d4d2414e2be2c5277c7fcf05fcc3a73abf41610695738c1d7b", input=input_data)
+            
+            # Assuming output is a URL, download it
+            if isinstance(output, str) and output.startswith('http'):
+                response = requests.get(output, stream=True)
+                response.raise_for_status()
+                with open(temp_output_path, "wb") as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        f.write(chunk)
+            else:
+                 st.error(f"Unexpected output format from Real-ESRGAN: {type(output)}")
+                 return frame # Return original frame on error
+
+        sharpened = cv2.imread(temp_output_path)
+        if sharpened is None:
+            st.warning("Failed to read sharpened frame, returning original.")
+            return frame
+        return sharpened
+    except Exception as e:
+        st.error(f"Error during frame sharpening: {e}")
+        return frame # Return original frame on error
+    finally:
+        # Clean up temp files
+        if os.path.exists(temp_input_path):
+            os.remove(temp_input_path)
+        if os.path.exists(temp_output_path):
+            os.remove(temp_output_path)
+        torch.cuda.empty_cache()
+
+def get_video_thumbnail(video_path):
+    """Extract the middle frame from a video for thumbnail display."""
+    try:
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            st.warning(f"Could not open video: {video_path}")
+            return None
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if total_frames <= 0:
+            st.warning(f"Video has no frames: {video_path}")
+            cap.release()
+            return None
+        cap.set(cv2.CAP_PROP_POS_FRAMES, total_frames // 2)
+        ret, frame = cap.read()
+        cap.release()
+        if ret:
+            return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        else:
+            st.warning(f"Could not read middle frame from: {video_path}")
+            return None
+    except Exception as e:
+        st.warning(f"Error getting thumbnail for {video_path}: {e}")
+        return None
+
+def image_to_base64(image):
+    """Convert a PIL Image to base64 string."""
+    buffered = io.BytesIO()
+    image.save(buffered, format="PNG")
+    return base64.b64encode(buffered.getvalue()).decode()
+
+def get_video_html(video_path):
+    """Generate HTML for video display."""
+    try:
+        with open(video_path, 'rb') as video_file:
+            video_bytes = video_file.read()
+        b64 = base64.b64encode(video_bytes).decode()
+        return f'''
+        <video width="100%" controls>
+            <source src="data:video/mp4;base64,{b64}" type="video/mp4">
+        </video>
+        '''
+    except Exception as e:
+        st.error(f"Error creating video HTML for {video_path}: {e}")
+        return "Error displaying video."
+
+def check_files(files, details=False):
+    """Check if files exist and print their details."""
+    results = []
+    if not isinstance(files, list):
+        st.warning("check_files received non-list input, returning empty results.")
+        return []
+        
+    for file in files:
+        if not isinstance(file, str):
+            st.warning(f"Skipping non-string item in file list: {type(file)}")
+            continue
+            
+        exists = os.path.exists(file)
+        if exists:
+            size = os.path.getsize(file)
+            if details:
+                # Try to get more file info
+                try:
+                    if file.lower().endswith(('.png', '.jpg', '.jpeg')):
+                        img = Image.open(file)
+                        results.append((file, exists, size, f"{img.width}x{img.height} pixels, {img.mode} mode"))
+                    elif file.lower().endswith(('.mp4', '.mov')):
+                        try:
+                            info = ffmpeg.probe(file)
+                            video_info = next((s for s in info['streams'] if s['codec_type'] == 'video'), None)
+                            if video_info:
+                                width = video_info.get('width', 'N/A')
+                                height = video_info.get('height', 'N/A')
+                                frames = video_info.get('nb_frames', 'N/A')
+                                try: # Duration might be in format or stream
+                                    duration = float(info['format']['duration'])
+                                    fps = float(frames) / duration if frames != 'N/A' and duration > 0 else 'N/A'
+                                except Exception:
+                                    fps = video_info.get('r_frame_rate', 'N/A') # Fallback
+                                results.append((file, exists, size, f"{width}x{height} pixels, {frames} frames, {fps} fps"))
+                            else:
+                                results.append((file, exists, size, "No video stream found"))
+                        except ffmpeg.Error as e:
+                             results.append((file, exists, size, f"ffmpeg probe error: {e.stderr.decode()}"))
+                    else:
+                        results.append((file, exists, size, ""))
+                except Exception as e:
+                    results.append((file, exists, size, f"Error getting details: {e}"))
+            else:
+                results.append((file, exists, size, ""))
+        else:
+            results.append((file, exists, 0, ""))
+    return results
+
+def generate_optimized_prompt(prompt):
+    """Generate a single optimized prompt from the combined prompt."""
+    # Base prompt template
+    user_image_prompt = f"""
+    Give me a highly detailed prompt to provide to an image generator based on the scene description below. The image should be highly detailed and textured, like a heavily stylized and realistic illustration. The scene is magical, colorful, awe-inspiring. emphasize architecture, subject placement, and details that resonate deeply. Be imaginative and descriptive. IMPORTANT: try your best to incorporate elements that have subtle movement because the image is ultimately going to be used to create a looping video which will serve as background ambience, so if there is water, we will want that flowing, if there is tall grass, we want that blowing in the breeze, if there is smoke, we want to see it, if there are animals, we want them grazing or walking, etc.
+
+    Ensure logical consistency - walking paths and streams should lead somewhere and not stop randomly, gates should be connected to a wall or fence and not standing by themselves, etc. Add thoughtful details that give a rich backstory to the image.
+
+    The beauty should be fairytale-like. Perfect lighting, one in a million compositions, surreal colors. This image should be the ideal and perfect example of the scene.
+    
+    avoid chaotic, busy scenes and prefer beautiful, more minimal, well-balanced scenes.
+
+    description: {prompt}
+    """
+    
+    # Generate a single optimized prompt
+    try:
+        output = replicate.run(
+            "anthropic/claude-3.7-sonnet", 
+            input={
+                "prompt": user_image_prompt,
+                "temperature": 0.7,
+                "max_tokens": 2048
+            }
+        )
+        optimized = "".join(output)
+        
+        # Return the optimized prompt if successful
+        if optimized:
+            return optimized.strip()
+        else:
+            st.error("Failed to generate optimized prompt (empty response)")
+            return None
+    except Exception as e:
+        st.error(f"Error generating optimized prompt: {e}")
+        return None
+
+# Functions to navigate between steps
+def go_to_step(step_number):
+    """Navigate to a specific step in the workflow"""
+    st.session_state.step = step_number
+    st.experimental_rerun()
+
+def save_step_state(step_number):
+    """Save the current state of a step to history"""
+    if step_number not in st.session_state.history:
+        st.session_state.history[step_number] = []
+    
+    # Save relevant state for the step
+    current_state = {}
+    if step_number == 1:
+        current_state = {
+            'prompt': st.session_state.prompt,
+            'optimized_prompts': st.session_state.optimized_prompts.copy() if 'optimized_prompts' in st.session_state and st.session_state.optimized_prompts else []
+        }
+    elif step_number == 3:
+        current_state = {
+            'generated_images': st.session_state.generated_images.copy() if 'generated_images' in st.session_state and st.session_state.generated_images else []
+        }
+    elif step_number == 4:
+        current_state = {
+            'selected_image_path': st.session_state.selected_image_path,
+            'upscaled_image_path': st.session_state.upscaled_image_path,
+            'generated_videos': st.session_state.generated_videos.copy() if 'generated_videos' in st.session_state and st.session_state.generated_videos else []
+        }
+    elif step_number == 5: # State entering Step 5 (Continue/Complete)
+        current_state = {
+            'clip_paths': st.session_state.clip_paths.copy() if 'clip_paths' in st.session_state and st.session_state.clip_paths else [],
+            'current_start_image_path': st.session_state.current_start_image_path
+        }
+    elif step_number == 6: # State entering Step 6 (Additional Video Selection)
+         current_state = {
+            'generated_videos': st.session_state.generated_videos.copy() if 'generated_videos' in st.session_state and st.session_state.generated_videos else [],
+            'loop_count': st.session_state.loop_count
+        }
+    elif step_number == 7: # State entering Step 7 (Final Settings)
+        current_state = {
+            'clip_paths': st.session_state.clip_paths.copy() if 'clip_paths' in st.session_state and st.session_state.clip_paths else [],
+            'final_video_path': st.session_state.final_video_path
+        }
+    
+    # Add timestamp and attempt number
+    current_state['timestamp'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    current_state['attempt'] = len(st.session_state.history[step_number]) + 1
+    
+    st.session_state.history[step_number].append(current_state)
+
+# --- App Start --- #
+
 # Initial check: Load existing project or start new?
 if 'run_id' not in st.session_state:
     st.title("Load or Start New Project")
@@ -351,7 +697,7 @@ elif 'run_id' in st.session_state:
         if max_step >= 5 and st.button("➕ Step 5: Continue or Complete", disabled=False):
             go_to_step(5)
         
-        if max_step >= 6 and st.button("�� Step 6: Additional Videos", disabled=False):
+        if max_step >= 6 and st.button("🖼️ Step 6: Additional Videos", disabled=False):
             go_to_step(6)
         
         if max_step >= 7 and st.button("⚙️ Step 7: Final Settings", disabled=False):
