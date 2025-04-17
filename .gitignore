@@ -34,6 +34,10 @@ workflow_log.txt
 # Data files
 inventory.csv
 
+# Project state and generated files
+projects/
+session_state.json
+
 # Temporary files
 temp_*
 *.temp
